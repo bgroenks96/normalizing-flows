@@ -13,6 +13,7 @@ class Flow():
             trainable_vars += next.trainable_variables
             next = next.pre
         chain = tfp.bijectors.Chain(bijectors, name=name)
+        self.transform = transform
         self.dist = tfp.distributions.TransformedDistribution(distribution=base_dist, bijector=chain)
         self.optimizer = tf.keras.optimizers.Adam(learning_rate)
         self.trainable_variables = trainable_vars
@@ -22,5 +23,6 @@ class Flow():
         with tf.GradientTape() as tape:
             loss = -tf.reduce_mean(self.dist.log_prob(X))
             grads = tape.gradient(loss, self.trainable_variables)
+            self.transform._backward()
             self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
-        return loss, grads
+            return loss, grads
