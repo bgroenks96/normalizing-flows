@@ -86,7 +86,7 @@ class Radial(BaseTransform):
     def __init__(self, input_dims, **kwargs):
         super(Radial, self).__init__(input_dims=input_dims, **kwargs)
         self.d = input_dims
-        self.z_0 = tf.Variable(np.random.uniform(0., 1., size=(1, self.d)), name=f'z_0_{self.unique_id}', dtype=tf.float32)
+        self.z_0 = tf.Variable(np.random.uniform(0.1, 1., size=(1, self.d)), name=f'z_0_{self.unique_id}', dtype=tf.float32)
         self.alpha = tf.Variable(0.01, name=f'alpha_{self.unique_id}', dtype=tf.float32,
                                 constraint=lambda x: tf.clip_by_value(x, 0.0, np.infty))
         self.beta = tf.Variable(1.0, name=f'beta_{self.unique_id}', dtype=tf.float32, trainable=False)
@@ -116,7 +116,13 @@ class Radial(BaseTransform):
         yz_norm = tf.norm(y - self.z_0)
         # solving || y - z_0 || = r + (beta*r)/(alpha + r) in terms of r; hopefully it's correct
         r = 0.5*(-tf.math.sqrt(alpha**2.0 + 2.0*alpha*(beta + yz_norm)+(beta - yz_norm)**2.0) - alpha - beta + yz_norm)
-        return (y - self.z_0) / (r*(1.0 + beta / (alpha + r)))
+        with tf.control_dependencies([
+            tf.debugging.assert_all_finite(alpha, 'alpha nan'),
+            tf.debugging.assert_all_finite(beta, 'beta nan'),
+            tf.debugging.assert_all_finite(self.z_0, 'z_0 nan'),
+            tf.debugging.assert_all_finite(yz_norm, 'yz_norm nan'),
+            tf.debugging.assert_all_finite(r, 'r nan')]):
+            return (y - self.z_0) / (r*(1.0 + beta / (alpha + r)))
 
     def _forward_log_det_jacobian(self, z):
         assert z.shape[-1] == self.d

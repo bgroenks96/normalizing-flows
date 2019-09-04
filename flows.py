@@ -23,6 +23,8 @@ class Flow():
         with tf.GradientTape() as tape:
             loss = -tf.reduce_mean(self.dist.log_prob(X))
             grads = tape.gradient(loss, self.trainable_variables)
-            self.transform._backward()
-            self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
-            return loss, grads
+            grads = [tf.clip_by_value(grad, -10, 10) for grad in grads]
+            with tf.control_dependencies([tf.debugging.assert_all_finite(grad, f'nan/inf gradient for {var.name}') for grad, var in zip(grads, self.trainable_variables)]):
+                self.transform._backward()
+                self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
+                return loss, grads
