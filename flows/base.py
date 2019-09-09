@@ -23,10 +23,6 @@ class BaseTransform(tfp.bijectors.Bijector, tf.Module):
         kwargs['pre'] = input_transform
         return self.__class__(**kwargs)
 
-    def _backward(self):
-        if self.pre is not None:
-            self.pre._backward()
-
     def _forward(self, x):
         raise NotImplementedError('missing implementation of _forward')
 
@@ -60,6 +56,5 @@ class Flow():
             grads = tape.gradient(loss, self.trainable_variables)
             grads = [tf.clip_by_value(grad, -10, 10) for grad in grads]
             with tf.control_dependencies([tf.debugging.assert_all_finite(grad, f'nan/inf gradient for {var.name}') for grad, var in zip(grads, self.trainable_variables)]):
-                self.transform._backward()
                 self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
                 return loss, grads
