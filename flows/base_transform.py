@@ -28,7 +28,7 @@ class BaseTransform(tfp.bijectors.Bijector, tf.Module):
 
 class AmortizedTransform(BaseTransform):
     def __init__(self, param_count, **kwargs):
-        super(BaseTransform, self).__init__(**kwargs)
+        super(AmortizedTransform, self).__init__(**kwargs)
         self.param_count = param_count
 
     def _amortize(self, args: tf.Tensor):

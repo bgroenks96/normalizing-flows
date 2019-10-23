@@ -14,7 +14,7 @@ class Planar(AmortizedTransform):
                              name=f'w_{self.unique_id}', dtype=tf.float32)
         self.b = tf.Variable(0.0, name=f'b_{self.unique_id}', dtype=tf.float32, trainable=not amortized)
         self.param_count = np.prod(self.u.shape) + np.prod(self.w.shape) + np.prod(self.b.shape)
-        super(Planar, self).__init__(param_count=self.param_count, input_dims=input_dims, **kwargs)
+        super(Planar, self).__init__(param_count=self.param_count, **kwargs)
         # define nonlinearity function
         self.h = lambda x: tf.math.tanh(x)
         self.dh = lambda x: 1.0 - tf.square(tf.tanh(x))

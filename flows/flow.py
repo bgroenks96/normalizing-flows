@@ -1,9 +1,10 @@
 import tensorflow_probability as tfp
-from base_transform import BaseTransform, AmortizedTransform
+from .base_transform import BaseTransform, AmortizedTransform
 
 class Flow():
-    def __init__(self, transform: BaseTransform, name: str):
+    def __init__(self, transform: BaseTransform):
         self.transform = transform
+        self.amortized_params = sum([t.param_count for t in self.transform.bijectors if isinstance(t, AmortizedTransform)])
 
     def amortize(self, args):
         if isinstance(self.transform, tfp.bijectors.Chain):

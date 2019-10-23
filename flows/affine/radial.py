@@ -1,7 +1,7 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
-from flows.base import BaseTransform
+from flows import BaseTransform
 
 @tf.custom_gradient
 def norm(x):
@@ -21,13 +21,13 @@ class Radial(BaseTransform):
 
     def _r(self, z):
         return norm(z - self.z_0) # (B,1)
-    
+
     def _h(self, alpha, r):
         return 1.0 / (alpha + r) # (B,1)
-    
+
     def _dh(self, alpha, r):
         return -1.0 / tf.math.square(alpha + r) # (B,1)
-    
+
     def _beta(self):
         m = tf.math.log(1.0 + tf.math.exp(self.beta))
         return -self.alpha + m
