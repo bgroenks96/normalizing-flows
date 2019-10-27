@@ -24,7 +24,7 @@ class FlowLayer(layers.Layer):
         # compute KL divergence loss
         log_qz0 = tf.reduce_sum(-0.5*(z_log_var + (z_0 - z_mu)**2 / z_var), axis=1)
         log_pzk = tf.reduce_sum(-0.5*z_k**2, axis=1)
-        kld = tf.math.reduce_mean(log_qz0 - log_pzk - ldj)
+        kld = tf.reduce_mean(log_qz0 - log_pzk - ldj)
         self.add_loss(self.beta*kld)
         return z_0, z_k, ldj, kld
 
