@@ -1,4 +1,5 @@
 import tensorflow as tf
+import tensorflow_probability as tfp
 from flows import BaseTransform
 
 class TriangularSylvester(BaseTransform):
@@ -17,38 +18,60 @@ class TriangularSylvester(BaseTransform):
             self.perm_z = lambda z: tf.eye(tf.shape(z)[1], batch_shape=tf.shape(z)[:1])
 
     def param_count(self, d):
-        return d**2 + 2*d
+        return d**2 + 2*d + d
+
+    @tf.function
+    def _parameterize(self, d: tf.Tensor, args: tf.Tensor):
+        r_full, diags, b = args[:,:d**2], args[:,d**2:-d], args[:,-d:]
+        diag_1, diag_2 = diags[:,:d], diags[:,d:]
+        r_full = tf.reshape(r_full, (-1, d, d))
+        b  = tf.reshape(b, (-1, 1, d))
+        triu_mask = tfp.math.fill_triangular(tf.ones(((d**2 + d) // 2,)), upper=True)
+        r1 = r_full * triu_mask
+        r2 = tf.transpose(r_full, (0, 2, 1)) * triu_mask
+        return r1, r2, diag_1, diag_2, b
+
+    @tf.function
+    def _diag_r(self, r, diag):
+        r_diag = tf.math.tanh(diag)
+        r = tf.linalg.set_diag(r, r_diag, k=1)
+        return r, r_diag
+
+    @tf.function
+    def _permute(self, z, perm_z):
+        return tf.matmul(z, perm_z)
+
+    @tf.function
+    def _transform(self, z, r1, r2, b):
+        lr1 = tf.transpose(r1, (0, 2, 1)) # (batch_size, d, d)
+        lr2 = tf.transpose(r2, (0, 2, 1)) # (batch_size, d, d)
+        a = tf.matmul(z, lr2) + b # (batch_size, 1, d)
+        z = tf.matmul(self.h(a), lr1) # (batch_size, 1, d)
+        return z, a
+
+    @tf.function
+    def _log_det_jacobian(self, a, r1_diag, r2_diag):
+        diag_j = 1.0 + tf.squeeze(self.dh(a), 1) * r1_diag * r2_diag
+        log_diag_j = tf.math.log(tf.math.abs(diag_j))
+        log_det_j = tf.reduce_sum(log_diag_j, axis=-1)
+        return log_det_j
 
     @tf.function
     def forward(self, z, args: tf.Tensor):
         # set up parameters
         d = tf.shape(z)[1]
-        r_full, diags, b = args[:,:d**2], args[:,m**2:-d], args[:,-d:-1]
-        diag_1, diag_2 = diags[:d], diags[d:]
-        r_full = tf.reshape(r_full, (-1, d, d))
-        b  = tf.reshape(b, (-1, 1, d))
+        r1, r2, diag_1, diag_2, b = self._parameterize(d, args)
         z = tf.expand_dims(z, axis=1) # (batch_size, 1, d)
-        diag = tf.constant(range(d))
-        triu_mask = tf.constant(np.triu(np.ones((d, d))))
-        r1 = r_full * triu_mask
-        r2 = tr.transpose(r_full, (0, 2, 1)) * triu_mask
         # set amortized diagonals for r1, r2
-        r1_diag = tf.math.tanh(diag_1)
-        r2_diag = tf.math.tanh(diag_2)
-        tf.linalg.set_diag(r1, r1_diag)
-        tf.linalg.set_diag(r2, r2_diag)
+        r1, r1_diag = self._diag_r(r1, diag_1)
+        r2, r2_diag = self._diag_r(r2, diag_2)
         # apply permutation to z
         perm_z = self.perm_z(z)
-        z_ = tf.matmul(z, perm_z)
+        z_ = self._permute(z, perm_z)
         # compute transformation
-        lr1 = tf.transpose(r1, (0, 2, 1)) # (batch_size, d, d)
-        lr2 = tf.transpose(r2, (0, 2, 1)) # (batch_size, d, d)
-        a = tf.matmul(z_, lr2T) + b # (batch_size, 1, d)
-        z_ = tf.matmul(self.h(a), lr1T) # (batch_size, 1, d)
+        z_, a = self._transform(z_, r1, r2, b)
         # permute z back again and add residual
-        z = z + tf.matmul(z_, perm_z)
+        z = z + self._permute(z_, perm_z)
         # compute log det jacobian
-        diag_j = 1.0 + tf.squeeze(self.dh(a), 1) * r1_diag * r2_diag
-        log_diag_j = tf.math.log(tf.math.abs(diag_j))
-        log_det_j = tf.reduce_sum(log_diag_j, axis=-1)
-        return tf.squeeze(z, axis=1), log_det_j
+        ldj = self._log_det_jacobian(a, r1_diag, r2_diag)
+        return tf.squeeze(z, axis=1), ldj
