@@ -1,2 +1,2 @@
-from .base_transform import BaseTransform, AmortizedTransform
+from .base_transform import BaseTransform
 from .flow import Flow
