@@ -56,3 +56,13 @@ def test_permute_reverse():
     z_rec = tsnf._permute(z_perm, I_r)
     assert np.all(tf.reverse(z, axis=(1,)) == z_perm)
     assert np.all(z == z_rec)
+
+def test_forward_output_shapes():
+    d = 2
+    tsnf = TriangularSylvester()
+    param_count = tsnf.param_count(d)
+    args = tf.ones((BATCH_SIZE, param_count))
+    z = tf.ones((BATCH_SIZE, d))
+    z_out, ldj = tsnf.forward(z, args)
+    assert z_out.shape == (BATCH_SIZE, d), z_out.shape
+    assert ldj.shape == (BATCH_SIZE, 1), ldj.shape

@@ -13,9 +13,9 @@ class TriangularSylvester(BaseTransform):
         self.dh = lambda x: 1.0 - tf.square(tf.tanh(x))
         # define permutation matrix constructor
         if flip_z:
-            self.perm_z = lambda z: tf.reverse(tf.eye(tf.shape(z)[1], batch_shape=tf.shape(z)[:1]), axis=(1,))
+            self.perm_z = lambda z: tf.reverse(tf.eye(tf.shape(z)[-1], batch_shape=tf.shape(z)[:1]), axis=(1,))
         else:
-            self.perm_z = lambda z: tf.eye(tf.shape(z)[1], batch_shape=tf.shape(z)[:1])
+            self.perm_z = lambda z: tf.eye(tf.shape(z)[-1], batch_shape=tf.shape(z)[:1])
 
     def param_count(self, d):
         return d**2 + 2*d + d
@@ -53,7 +53,7 @@ class TriangularSylvester(BaseTransform):
     def _log_det_jacobian(self, a, r1_diag, r2_diag):
         diag_j = 1.0 + tf.squeeze(self.dh(a), 1) * r1_diag * r2_diag
         log_diag_j = tf.math.log(tf.math.abs(diag_j))
-        log_det_j = tf.reduce_sum(log_diag_j, axis=-1)
+        log_det_j = tf.reduce_sum(log_diag_j, axis=-1, keepdims=True)
         return log_det_j
 
     @tf.function
@@ -62,7 +62,7 @@ class TriangularSylvester(BaseTransform):
         d = tf.shape(z)[1]
         r1, r2, diag_1, diag_2, b = self._parameterize(d, args)
         z = tf.expand_dims(z, axis=1) # (batch_size, 1, d)
-        # set amortized diagonals for r1, r2
+        # set amortized diagonals for r1, r2 block
         r1, r1_diag = self._diag_r(r1, diag_1)
         r2, r2_diag = self._diag_r(r2, diag_2)
         # apply permutation to z
