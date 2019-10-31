@@ -7,15 +7,17 @@ from layers import GatedConv2D, GatedConv2DTranspose, FlowLayer
 
 class GatedConvVAE(tf.Module):
     def __init__(self, img_wt, img_ht, flow: Flow, hidden_units=32, z_size=64, callbacks=[], metrics=[],
-                 output_activation='sigmoid', loss='binary_crossentropy'):
+                 output_activation='sigmoid', loss='binary_crossentropy', beta_update_fn=None):
         super(GatedConvVAE, self).__init__()
+        if beta_update_fn is None:
+            beta_update_fn = lambda i, beta: 1.0E-2*i
         self.flow = flow
         self.hidden_units = hidden_units
         self.z_size = z_size
         self.output_activation = output_activation
         self.encoder = self._create_encoder(img_wt, img_ht)
         self.decoder, self.flow_layer = self._create_decoder(img_wt, img_ht)
-        beta_update = LambdaCallback(on_epoch_begin=lambda i,_: self.flow_forward.set_beta(2.0E-4/tf.math.exp(-i)))
+        beta_update = LambdaCallback(on_epoch_begin=lambda i,_: beta_update_fn(i, self.flow_layer.beta))
         self.model = Model(inputs=self.encoder.inputs, outputs=self.decoder(self.encoder(self.encoder.inputs)))
         self.model.compile(loss=loss, optimizer='adam', callbacks=[beta_update]+callbacks, metrics=metrics)
 
