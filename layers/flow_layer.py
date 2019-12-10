@@ -22,13 +22,14 @@ class FlowLayer(layers.Layer):
         z_var = tf.exp(z_log_var)
         z_0 = self.reparameterize(z_mu, z_var)
         # compute forward flow
-        z_k, ldj = self.flow.forward(z_0, params) if self.flow is not None else (z_0, tf.constant(0.))
+        zs, ldj = self.flow.forward(z_0, params) if self.flow is not None else ([z_0], tf.constant(0.))
+        z_k = zs[-1]
         # compute KL divergence loss
         log_qz0 = tf.reduce_sum(-0.5*(z_log_var + (z_0 - z_mu)**2 / z_var), axis=1)
         log_pzk = tf.reduce_sum(-0.5*z_k**2, axis=1)
         kld = tf.reduce_mean(log_qz0 - log_pzk - ldj)
         self.add_loss(self.beta*kld)
-        return z_0, z_k, ldj, kld
+        return zs, ldj, kld
 
     def reparameterize(self, mu, var):
         eps = tf.random.normal(shape=tf.shape(mu))
