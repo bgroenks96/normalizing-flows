@@ -6,7 +6,7 @@ from flows import Flow
 from layers import GatedConv2D, GatedConv2DTranspose, FlowLayer
 
 class GatedConvVAE(tf.Module):
-    def __init__(self, img_wt, img_ht, flow: Flow, hidden_units=32, z_size=64, callbacks=[], metrics=[],
+    def __init__(self, img_wt, img_ht, flow: Flow = None, hidden_units=32, z_size=64, callbacks=[], metrics=[],
                  output_activation='sigmoid', loss='binary_crossentropy', beta_update_fn=None):
         super(GatedConvVAE, self).__init__()
         if beta_update_fn is None:
@@ -45,18 +45,24 @@ class GatedConvVAE(tf.Module):
         h = self._conv_downsample(self.hidden_units*2, self._conv_downsample(self.hidden_units, input_0))
         z_mu = Dense(self.z_size, activation='linear')(Flatten()(h))
         z_log_var = Dense(self.z_size, activation='linear')(Flatten()(h))
-        params = Dense(self.flow.param_count(self.z_size), activation='linear')(Flatten()(h))
-        return Model(inputs=input_0, outputs=[z_mu, z_log_var, params])
+        outputs = [z_mu, z_log_var]
+        if self.flow is not None:
+            params = Dense(self.flow.param_count(self.z_size), activation='linear')(Flatten()(h))
+            outputs += [params]
+        return Model(inputs=input_0, outputs=outputs)
 
 
     def _create_decoder(self, wt, ht):
         z_mu = Input(shape=(self.z_size,))
         z_log_var = Input(shape=(self.z_size,))
-        params = Input(shape=(self.flow.param_count(self.z_size),))
+        inputs = [z_mu, z_log_var]
+        if self.flow is not None:
+            params = Input(shape=(self.flow.param_count(self.z_size),))
+            inputs += [params]
         flow_layer = FlowLayer(self.flow, min_beta=1.0E-3)
-        z_0, z_k, ldj, kld = flow_layer([z_mu, z_log_var, params])
+        z_0, z_k, ldj, kld = flow_layer(inputs)
         h_k = Dense(wt//4 * ht//4, activation='linear')(z_k)
         h_k = Reshape((wt//4, ht//4, 1))(h_k)
         x_out = self._conv_upsample(self.hidden_units, self._conv_upsample(self.hidden_units*2, h_k))
         output_0 = Conv2D(1, 1, activation=self.output_activation, padding='same')(x_out)
-        return Model(inputs=[z_mu, z_log_var, params], outputs=output_0), flow_layer
+        return Model(inputs=inputs, outputs=output_0), flow_layer

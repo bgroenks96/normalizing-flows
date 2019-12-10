@@ -14,13 +14,15 @@ class FlowLayer(layers.Layer):
         Requires three parameters: z_mu, z_sigma, params
         Returns reparameterized z_0, transformed z_k, summed log det jacobian, and KL divergence
         """
-        assert len(inputs) == 3, 'expected three parameters, got {}'.format(len(inputs))
-        z_mu, z_log_var, params = inputs
+        if self.flow is not None:
+            z_mu, z_log_var, params = inputs
+        else:
+            z_mu, z_log_var = inputs
         # reparameterize z_mu, z_log_var
         z_var = tf.exp(z_log_var)
         z_0 = self.reparameterize(z_mu, z_var)
         # compute forward flow
-        z_k, ldj = self.flow.forward(z_0, params)
+        z_k, ldj = self.flow.forward(z_0, params) if self.flow is not None else (z_0, tf.constant(0.))
         # compute KL divergence loss
         log_qz0 = tf.reduce_sum(-0.5*(z_log_var + (z_0 - z_mu)**2 / z_var), axis=1)
         log_pzk = tf.reduce_sum(-0.5*z_k**2, axis=1)
