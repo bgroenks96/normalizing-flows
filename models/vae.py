@@ -9,14 +9,16 @@ class GatedConvVAE(tf.Module):
     """
     Gated, convolutional variational autoencoder with support for normalizing flows.
     """
-    def __init__(self, img_wt, img_ht, flow: Flow = None, hidden_units=32, z_size=64, callbacks=[], metrics=[],
-                 output_activation='sigmoid', loss='binary_crossentropy', beta_update_fn=None):
+    def __init__(self, img_wt, img_ht, flow: Flow = None, hidden_units=32, z_size=64, num_downsamples=2,
+                 callbacks=[], metrics=[], output_activation='sigmoid', loss='binary_crossentropy',
+                 beta_update_fn=None):
         super(GatedConvVAE, self).__init__()
         if beta_update_fn is None:
             beta_update_fn = lambda i, beta: 1.0E-2*i
         self.flow = flow
         self.hidden_units = hidden_units
         self.z_size = z_size
+        self.num_downsamples = num_downsamples
         self.output_activation = output_activation
         self.encoder = self._create_encoder(img_wt, img_ht)
         self.decoder, self.flow_layer = self._create_decoder(img_wt, img_ht)
@@ -79,7 +81,9 @@ class GatedConvVAE(tf.Module):
 
     def _create_encoder(self, wt, ht):
         input_0 = Input((wt, ht, 1))
-        h = self._conv_downsample(self.hidden_units*2, self._conv_downsample(self.hidden_units, input_0))
+        h = input_0
+        for i in range(self.num_downsamples):
+            h = self._conv_downsample(self.hidden_units*(i+1), h)
         z_mu = Dense(self.z_size, activation='linear')(Flatten()(h))
         z_log_var = Dense(self.z_size, activation='linear')(Flatten()(h))
         outputs = [z_mu, z_log_var]
@@ -99,8 +103,10 @@ class GatedConvVAE(tf.Module):
         flow_layer = FlowLayer(self.flow, min_beta=1.0E-3)
         zs, ldj, kld = flow_layer(inputs)
         z_k = zs[-1]
-        h_k = Dense(wt//4 * ht//4, activation='linear')(z_k)
-        h_k = Reshape((wt//4, ht//4, 1))(h_k)
-        x_out = self._conv_upsample(self.hidden_units, self._conv_upsample(self.hidden_units*2, h_k))
-        output_0 = Conv2D(1, 1, activation=self.output_activation, padding='same')(x_out)
+        s = 2**self.num_downsamples
+        h_k = Dense(wt // s * ht // s, activation='linear')(z_k)
+        h_k = Reshape((wt // s, ht // s, 1))(h_k)
+        for i in range(self.num_downsamples):
+            h_k = self._conv_upsample(self.hidden_units*(i+1), h_k)
+        output_0 = Conv2D(1, 1, activation=self.output_activation, padding='same')(h_k)
         return Model(inputs=inputs, outputs=[output_0] + zs), flow_layer
