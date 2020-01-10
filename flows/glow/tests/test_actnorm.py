@@ -6,7 +6,7 @@ import numpy as np
 def test_forward_inverse():
     normal_diag = tfp.distributions.MultivariateNormalDiag(loc=np.zeros((1,64,), dtype=np.float32),
                                                            scale_diag=np.ones((1,64,), dtype=np.float32))
-    actnorm = ActNorm(event_ndims=1)
+    actnorm = ActNorm()
     x = normal_diag.sample()
     # use impl methods for unit under test to avoid caching mechanism
     y = actnorm._forward(x)
