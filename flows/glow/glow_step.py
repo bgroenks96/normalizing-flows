@@ -5,7 +5,7 @@ from . import InvertibleConv, ActNorm, Squeeze
 
 class GlowStep(tfp.bijectors.Bijector):
     def __init__(self, layer=0, coupling_nn_ctor=resnet_glow(), split_axis=-1, name='glow_step',
-                 init_from_data=True, forward_min_event_ndims=1, inverse_min_event_ndims=1,
+                 init_from_data=True, forward_min_event_ndims=0, inverse_min_event_ndims=0,
                  *args, **kwargs):
         super().__init__(forward_min_event_ndims=forward_min_event_ndims,
                          inverse_min_event_ndims=inverse_min_event_ndims,

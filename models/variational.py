@@ -14,5 +14,6 @@ def nll_loss(distribution_fn):
 
 def parameterize(model, distribution_fn):
     model.predict_mean = lambda x: distribution_fn(model.predict(x)).mean()
+    model.predict_q = lambda x: distribution_fn(model.predict(x)).quantile()
     model.sample = lambda x: distribution_fn(model.predict(x)).sample()
     return model

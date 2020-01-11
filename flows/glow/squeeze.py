@@ -3,7 +3,7 @@ import tensorflow_probability as tfp
 
 class Squeeze(tfp.bijectors.Bijector):
     def __init__(self, factor=2,
-                 forward_min_event_ndims=1, inverse_min_event_ndims=1,
+                 forward_min_event_ndims=0, inverse_min_event_ndims=0,
                  *args, **kwargs):
         """
         Creates a new bijector for the "squeeze" operation, where spatial dimensions are folded
