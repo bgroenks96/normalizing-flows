@@ -15,17 +15,19 @@ class Glow(tf.Module):
         
     def train_batch(self, x):
         with tf.GradientTape() as tape:
+            z = self.glow.inverse(x)
             ildj = self.glow.inverse_log_det_jacobian(x, event_ndims=self.prior.event_shape.rank)
-            log_probs = self.target_dist.log_prob(x)
+            prior_log_probs = self.prior.log_prob(z)
+            log_probs = prior_log_probs + ildj
             if not self.reg_modules:
                 self.reg_modules = [b for b in self.submodules if isinstance(b, RegularizedBijector)]
             nll_loss = -tf.math.reduce_mean(log_probs)
             reg_loss = [b._regularization_loss() for b in self.reg_modules]
             total_loss = nll_loss + tf.math.reduce_sum(reg_loss)
             gradients = tape.gradient(total_loss, self.trainable_variables)
-            gradients, _ = tf.clip_by_global_norm(gradients, 1.0)
+            gradients, grad_norm = tf.clip_by_global_norm(gradients, 1.0)
             self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
-        return total_loss, nll_loss, ildj
+        return total_loss, nll_loss, ildj, grad_norm
             
     def train(self, data):
         for x_batch in data:

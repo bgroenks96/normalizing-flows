@@ -5,7 +5,7 @@ import scipy
 from .regularized_bijector import RegularizedBijector
 
 class InvertibleConv(RegularizedBijector):
-    def __init__(self, alpha=1., name='invertible_1x1_conv',
+    def __init__(self, alpha=1.0E-2, name='invertible_1x1_conv',
                  forward_min_event_ndims=3, inverse_min_event_ndims=3,
                  *args, **kwargs):
         super().__init__(*args,
