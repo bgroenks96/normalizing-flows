@@ -17,13 +17,13 @@ class Squeeze(tfp.bijectors.Bijector):
         self.padding_x = None
         self.padding_y = None
         
-    def _init_vars(self, x):
+    def _init_vars(self, input_shape):
         if self.padding_x is None or self.padding_y is None:
-            batch_size, ht, wt, c = x.shape
+            batch_size, ht, wt, c = input_shape
             self.padding_y, self.padding_x = ht % self.factor, wt % self.factor
 
     def _forward(self, x):
-        self._init_vars(x)
+        self._init_vars(x.shape)
         shape = x.shape
         factor = self.factor
         assert shape.rank == 4, 'input should be 4-dimensional'
@@ -41,7 +41,7 @@ class Squeeze(tfp.bijectors.Bijector):
         return y
 
     def _inverse(self, y):
-        self._init_vars(y)
+        self._init_vars(y.shape)
         shape = y.shape
         factor = self.factor
         assert shape.rank == 4, 'input should be 4-dimensional'

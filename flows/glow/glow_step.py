@@ -5,16 +5,16 @@ from . import InvertibleConv, ActNorm, Squeeze
 
 class GlowStep(tfp.bijectors.Bijector):
     def __init__(self, layer=0, coupling_nn_ctor=resnet_glow(), split_axis=-1, name='glow_step',
-                 init_from_data=True, forward_min_event_ndims=0, inverse_min_event_ndims=0,
+                 init_from_data=True, forward_min_event_ndims=3, inverse_min_event_ndims=3,
                  *args, **kwargs):
         super().__init__(forward_min_event_ndims=forward_min_event_ndims,
                          inverse_min_event_ndims=inverse_min_event_ndims,
                          name=name, *args, **kwargs)
-        #act_norm = ActNorm(name=f'{self.name}/act_norm', init_from_data=init_from_data)
-        batch_norm = tfp.bijectors.BatchNormalization(name=f'{self.name}/batch_norm')
+        act_norm = ActNorm(name=f'{self.name}/act_norm', init_from_data=init_from_data)
+        #batch_norm = tfp.bijectors.BatchNormalization(name=f'{self.name}/batch_norm')
         invertible_conv = InvertibleConv(name=f'{self.name}/inv_conv')
         affine_coupling = AffineCoupling(nn_ctor=coupling_nn_ctor, name=f'{self.name}/affine_coupling')
-        flow_steps = [batch_norm, invertible_conv, affine_coupling]
+        flow_steps = [act_norm, invertible_conv, affine_coupling]
         self.flow = tfp.bijectors.Chain(list(reversed(flow_steps)))
         self.layer = layer
         self.split_axis = split_axis

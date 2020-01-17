@@ -5,7 +5,7 @@ from . import Squeeze, GlowStep, resnet_glow
 class GlowFlow(tfp.bijectors.Bijector):
     def __init__(self, num_layers=1, depth=1, coupling_nn_ctor=resnet_glow(),
                  init_from_data=True, name='glow_flow',
-                 forward_min_event_ndims=0, inverse_min_event_ndims=0,
+                 forward_min_event_ndims=3, inverse_min_event_ndims=3,
                  *args, **kwargs):
         """
         Creates a new Glow normalizing flow bijector with the given configuration.

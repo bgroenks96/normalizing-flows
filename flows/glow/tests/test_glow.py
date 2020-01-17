@@ -5,7 +5,7 @@ import numpy as np
 import itertools as it
 import pytest
 
-@pytest.mark.parametrize('layer', [0,1,2])
+@pytest.mark.parametrize('layer', [1,2,3])
 def test_step_forward_inverse(layer):
     normal_diag = tfp.distributions.MultivariateNormalDiag(loc=np.zeros((1,256,), dtype=np.float32),
                                                            scale_diag=np.ones((1,256,), dtype=np.float32))
@@ -18,7 +18,7 @@ def test_step_forward_inverse(layer):
     x_ = glow._inverse(y)
     np.testing.assert_array_almost_equal(x_, x_reshaped, decimal=5)
     
-@pytest.mark.parametrize(['num_layers', 'depth_per_layer'], list(it.product(range(3), range(4))))
+@pytest.mark.parametrize(['num_layers', 'depth_per_layer'], list(it.product(range(1,4), range(1,5))))
 def test_flow_forward_inverse(num_layers, depth_per_layer):
     normal_diag = tfp.distributions.MultivariateNormalDiag(loc=np.zeros((1,256,), dtype=np.float32),
                                                            scale_diag=np.ones((1,256,), dtype=np.float32))

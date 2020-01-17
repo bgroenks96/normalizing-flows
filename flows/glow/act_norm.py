@@ -4,8 +4,8 @@ import numpy as np
 from .regularized_bijector import RegularizedBijector
 
 class ActNorm(RegularizedBijector):
-    def __init__(self, alpha=1., init_from_data=False, name='act_norm',
-                 forward_min_event_ndims=1, inverse_min_event_ndims=1,
+    def __init__(self, alpha=0.1, init_from_data=False, name='act_norm',
+                 forward_min_event_ndims=3, inverse_min_event_ndims=3,
                  *args, **kwargs):    
         """
         Creates a new activation normalization (actnorm) bijector.
@@ -45,12 +45,11 @@ class ActNorm(RegularizedBijector):
         
     def _inverse_log_det_jacobian(self, x):
         self._init_vars(x)
-        fldj = tf.math.reduce_sum(self.log_s)
-        #print(self.name, fldj)
-        return tf.broadcast_to(fldj, (x.shape[0],1))
+        ildj = tf.math.reduce_sum(self.log_s)
+        return tf.broadcast_to(ildj, (x.shape[0],))
     
     def _forward_log_det_jacobian(self, y):
-        return -self._forward_log_det_jacobian(y)
+        return -self._inverse_log_det_jacobian(y)
     
     def _regularization_loss(self):
         return self.alpha*tf.math.reduce_sum(self.log_s**2)

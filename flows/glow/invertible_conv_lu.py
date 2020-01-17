@@ -5,8 +5,8 @@ import scipy
 from .regularized_bijector import RegularizedBijector
 
 class InvertibleConv(RegularizedBijector):
-    def __init__(self, alpha=1.0E-2, name='invertible_1x1_conv',
-                 forward_min_event_ndims=0, inverse_min_event_ndims=0,
+    def __init__(self, alpha=0.1, name='invertible_1x1_conv',
+                 forward_min_event_ndims=3, inverse_min_event_ndims=3,
                  *args, **kwargs):
         super().__init__(*args,
                          forward_min_event_ndims=forward_min_event_ndims,
@@ -68,12 +68,11 @@ class InvertibleConv(RegularizedBijector):
     
     def _inverse_log_det_jacobian(self, x):
         self._init_vars(x)
-        fldj = tf.math.reduce_sum(self.log_d)
-        #print(self.name, -fldj)
-        return tf.squeeze(tf.broadcast_to(fldj, (x.shape[0],1)))
+        ildj = tf.math.reduce_sum(self.log_d)
+        return tf.broadcast_to(ildj, (x.shape[0],))
 
     def _forward_log_det_jacobian(self, y):
-        return -self._forward_log_det_jacobian(y)
+        return -self._inverse_log_det_jacobian(y)
     
     def _regularization_loss(self):
         return self.alpha*tf.math.reduce_sum(self.log_d**2)

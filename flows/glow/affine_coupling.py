@@ -10,23 +10,19 @@ def resnet_glow(hidden_dims=512, kernel_size=3, alpha=1.0E-3):
         x = Input((None,None,c//2))
         h_1 = Conv2D(hidden_dims, kernel_size, padding='same', kernel_regularizer=l2(alpha))(x)
         h_1 = Activation('relu')(h_1)
-        h_1 = BatchNormalization()(h_1)
         h_2 = Conv2D(hidden_dims, 1, padding='same', kernel_regularizer=l2(alpha))(h_1)
         h_2 = Activation('relu')(h_2)
-        h_2 = BatchNormalization()(h_2)
         s = Conv2D(c//2, kernel_size, padding='same', kernel_regularizer=l2(alpha), kernel_initializer='zeros')(h_2)
         s = Lambda(lambda x: x+2)(s)
         s = Activation('sigmoid')(s)
         t = Conv2D(c//2, kernel_size, padding='same', kernel_regularizer=l2(alpha), kernel_initializer='zeros')(h_2)
         model = Model(inputs=x, outputs=[s, t])
-        # note that loss and optimizer don't matter for individual coupling models
-        #model.compile(loss='kld', optimizer='adam')
         return model
     return _resnet
 
 class AffineCoupling(RegularizedBijector):
     def __init__(self, nn_ctor=resnet_glow(),
-                 forward_min_event_ndims=1, inverse_min_event_ndims=1,
+                 forward_min_event_ndims=3, inverse_min_event_ndims=3,
                  *args, **kwargs):
         super().__init__(forward_min_event_ndims=forward_min_event_ndims,
                          inverse_min_event_ndims=inverse_min_event_ndims,
@@ -54,13 +50,12 @@ class AffineCoupling(RegularizedBijector):
         x_b = y_b
         return tf.concat([x_a, x_b], axis=-1)
     
-    def _forward_log_det_jacobian(self, y):
+    def _inverse_log_det_jacobian(self, y):
         self._init_nn(y)
         _, y_b = tf.split(y, 2, axis=-1)
         s, _ = self.nn(y_b)
-        ildj = -tf.math.reduce_sum(tf.math.log(s), axis=[1,2,3])
-        #print(self.name, ildj)
-        return tf.expand_dims(ildj, axis=-1)
+        ildj = tf.math.reduce_sum(tf.math.log(s), axis=[1,2,3])
+        return ildj
     
     def _regularization_loss(self):
         assert self.nn is not None, 'bijector not initialized'
