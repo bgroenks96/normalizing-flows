@@ -38,7 +38,7 @@ class AffineCoupling(RegularizedBijector):
         if self.nn is None:
             self.nn = self.nn_ctor(x.shape[-1])
     
-    def _forward(self, x):
+    def _inverse(self, x):
         self._init_nn(x)
         x_a, x_b = tf.split(x, 2, axis=-1)
         s, t = self.nn(x_b)
@@ -46,7 +46,7 @@ class AffineCoupling(RegularizedBijector):
         y_b = x_b
         return tf.concat([y_a, y_b], axis=-1)
     
-    def _inverse(self, y):
+    def _forward(self, y):
         self._init_nn(y)
         y_a, y_b = tf.split(y, 2, axis=-1)
         s, t = self.nn(y_b)
@@ -54,7 +54,7 @@ class AffineCoupling(RegularizedBijector):
         x_b = y_b
         return tf.concat([x_a, x_b], axis=-1)
     
-    def _inverse_log_det_jacobian(self, y):
+    def _forward_log_det_jacobian(self, y):
         self._init_nn(y)
         _, y_b = tf.split(y, 2, axis=-1)
         s, _ = self.nn(y_b)

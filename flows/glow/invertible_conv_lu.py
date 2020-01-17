@@ -54,25 +54,25 @@ class InvertibleConv(RegularizedBijector):
         w_inv = tf.linalg.matmul(u_inv, tf.linalg.matmul(l_inv, p_inv))
         return tf.expand_dims(w_inv, axis=0) # (1,1,c,c)
     
-    def _forward(self, x):
+    def _inverse(self, x):
         self._init_vars(x)
         w = self._compute_w(self.L, self.U, self.P, self.log_d, self.sgn_d)
         y = tf.nn.conv2d(x, w, [1,1,1,1], padding='SAME')
         return y
     
-    def _inverse(self, y):
+    def _forward(self, y):
         self._init_vars(y)
         w_inv = self._compute_w_inverse(self.L, self.U, self.P, self.log_d, self.sgn_d)
         x = tf.nn.conv2d(y, w_inv, [1,1,1,1], padding='SAME')
         return x
     
-    def _forward_log_det_jacobian(self, x):
+    def _inverse_log_det_jacobian(self, x):
         self._init_vars(x)
         fldj = tf.math.reduce_sum(self.log_d)
         #print(self.name, -fldj)
         return tf.squeeze(tf.broadcast_to(fldj, (x.shape[0],1)))
 
-    def _inverse_log_det_jacobian(self, y):
+    def _forward_log_det_jacobian(self, y):
         return -self._forward_log_det_jacobian(y)
     
     def _regularization_loss(self):

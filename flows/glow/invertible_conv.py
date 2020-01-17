@@ -22,23 +22,23 @@ class InvertibleConv(tfp.bijectors.Bijector):
             self.W = ortho_init((1,1,c,c))
             #self.W = tf.reshape(tf.eye(c,c), (1,1,c,c))
     
-    def _forward(self, x):
+    def _inverse(self, x):
         self._init_vars(x)
         y = tf.nn.conv2d(x, self.W, [1,1,1,1], padding='SAME')
         return y
     
-    def _inverse(self, y):
+    def _forward(self, y):
         self._init_vars(y)
         x = tf.nn.conv2d(y, tf.linalg.inv(self.W), [1,1,1,1], padding='SAME')
         return x
     
-    def _forward_log_det_jacobian(self, x):
+    def _inverse_log_det_jacobian(self, x):
         self._init_vars(x)
         det = tf.linalg.det(self.W)
         fldj = tf.math.log(tf.math.abs(det))
         return tf.squeeze(tf.broadcast_to(fldj, (x.shape[0],1)))
 
-    def _inverse_log_det_jacobian(self, x):
+    def _forward_log_det_jacobian(self, x):
         self._init_vars(x)
         det = tf.linalg.det(tf.linalg.inv(self.W))
         ildj = tf.math.log(tf.math.abs(det))

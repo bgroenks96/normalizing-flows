@@ -35,21 +35,21 @@ class ActNorm(RegularizedBijector):
             self.b = tf.Variable(mus, name=f'{self.name}/b')
             self.init = True
     
-    def _forward(self, x):
+    def _inverse(self, x):
         self._init_vars(x)
         return tf.math.exp(self.log_s)*x + self.b
         
-    def _inverse(self, y):
+    def _forward(self, y):
         self._init_vars(y)
         return tf.math.exp(-self.log_s)*(y - self.b)
         
-    def _forward_log_det_jacobian(self, x):
+    def _inverse_log_det_jacobian(self, x):
         self._init_vars(x)
         fldj = tf.math.reduce_sum(self.log_s)
         #print(self.name, fldj)
         return tf.broadcast_to(fldj, (x.shape[0],1))
     
-    def _inverse_log_det_jacobian(self, y):
+    def _forward_log_det_jacobian(self, y):
         return -self._forward_log_det_jacobian(y)
     
     def _regularization_loss(self):

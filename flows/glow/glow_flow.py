@@ -33,20 +33,14 @@ class GlowFlow(tfp.bijectors.Bijector):
         self.flow = tfp.bijectors.Chain(list(reversed(flow_steps)))
        
     def _forward(self, x):
-        # The forward pass of Glow is designed to go from inputs x -> encoding z;
-        # In TFP, the forward direction is from the encoded distribution z -> x;
-        # So we invert the directions to allow Glow to be used as a standard TFP bijector
-        return self.flow._inverse(x)
+        return self.flow._forward(x)
     
     def _inverse(self, y):
-        # apply forward flow for inverse
-        x = self.flow._forward(y)
+        x = self.flow._inverse(y)
         return x
     
     def _forward_log_det_jacobian(self, x):
-        # apply inverse ldj for forward
-        return self.flow._inverse_log_det_jacobian(x)
+        return self.flow._forward_log_det_jacobian(x)
     
     def _inverse_log_det_jacobian(self, y):
-        # apply forward ldj for inverse
-        return self.flow._forward_log_det_jacobian(y)
+        return self.flow._inverse_log_det_jacobian(y)
