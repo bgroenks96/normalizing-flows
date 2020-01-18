@@ -1,9 +1,9 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
-from flows.base import BaseTransform
+from flows.base import Transform
 
-class Affine(BaseTransform):
+class Affine(Transform):
     """
     DEPRECATED - doesn't seem to work properly; see Planar flow instead
     """

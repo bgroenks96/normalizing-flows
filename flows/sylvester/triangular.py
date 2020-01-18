@@ -1,13 +1,13 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
-from flows import BaseTransform
+from flows import Transform
 
-class TriangularSylvester(BaseTransform):
-    def __init__(self, flip_z=False, **kwargs):
+class TriangularSylvester(Transform):
+    def __init__(self, flip_z=False, **kwparams):
         """
         Triangular Sylvester flow (T-SNF)
         """
-        super(TriangularSylvester, self).__init__(**kwargs)
+        super().__init__(**kwparams)
         # define nonlinearity function
         self.h = lambda x: tf.math.tanh(x)
         self.dh = lambda x: 1.0 - tf.square(tf.tanh(x))
@@ -21,8 +21,8 @@ class TriangularSylvester(BaseTransform):
         return d**2 + 2*d + d
 
     @tf.function
-    def _parameterize(self, d: tf.Tensor, args: tf.Tensor):
-        r_full, diags, b = args[:,:d**2], args[:,d**2:-d], args[:,-d:]
+    def _parameterize(self, d: tf.Tensor, params: tf.Tensor):
+        r_full, diags, b = params[:,:d**2], params[:,d**2:-d], params[:,-d:]
         diag_1, diag_2 = diags[:,:d], diags[:,d:]
         r_full = tf.reshape(r_full, (-1, d, d))
         b  = tf.reshape(b, (-1, 1, d))
@@ -57,10 +57,10 @@ class TriangularSylvester(BaseTransform):
         return log_det_j
 
     @tf.function
-    def forward(self, z, args: tf.Tensor):
+    def forward(self, z, params: tf.Tensor):
         # set up parameters
         d = tf.shape(z)[1]
-        r1, r2, diag_1, diag_2, b = self._parameterize(d, args)
+        r1, r2, diag_1, diag_2, b = self._parameterize(d, params)
         z = tf.expand_dims(z, axis=1) # (batch_size, 1, d)
         # set amortized diagonals for r1, r2 block
         r1, r1_diag = self._diag_r(r1, diag_1)

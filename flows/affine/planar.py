@@ -1,9 +1,9 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
-from flows import BaseTransform
+from flows import Transform
 
-class Planar(BaseTransform):
+class Planar(Transform):
     def __init__(self, **kwargs):
         super(Planar, self).__init__(**kwargs)
         # define nonlinearity function

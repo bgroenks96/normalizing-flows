@@ -1,9 +1,9 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
-from flows.base import BaseTransform
+from flows.base import Transform
 
-class PReLU(BaseTransform):
+class PReLU(Transform):
     def __init__(self, **kwargs):
         super(PReLU, self).__init__(**kwargs)
         self.scope = f'prelu_{self.unique_id}'

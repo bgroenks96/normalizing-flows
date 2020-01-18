@@ -1,7 +1,7 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
-from flows import BaseTransform
+from flows import Transform
 
 @tf.custom_gradient
 def norm(x):
@@ -10,7 +10,7 @@ def norm(x):
         return dy * (x / (y + 1e-19))
     return y, grad
 
-class Radial(BaseTransform):
+class Radial(Transform):
     def __init__(self, **kwargs):
         super(Radial, self).__init__(**kwargs)
 
