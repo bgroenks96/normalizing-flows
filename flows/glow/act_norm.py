@@ -1,55 +1,54 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
-from .regularized_bijector import RegularizedBijector
+from flows import Transform
 
-class ActNorm(RegularizedBijector):
-    def __init__(self, alpha=0.1, init_from_data=False, name='act_norm',
-                 forward_min_event_ndims=3, inverse_min_event_ndims=3,
+class ActNorm(Transform):
+    def __init__(self, input_shape=None, alpha=1.0, init_from_data=False, name='actnorm',
                  *args, **kwargs):    
         """
-        Creates a new activation normalization (actnorm) bijector.
+        Creates a new activation normalization (actnorm) transform.
         """
-        super().__init__(forward_min_event_ndims=forward_min_event_ndims,
-                         inverse_min_event_ndims=inverse_min_event_ndims,
-                         name=name,
-                         *args, **kwargs)
         self.alpha = alpha
         self.init_from_data = init_from_data
+        self.log_s = None
+        self.b = None
         self.init = False
+        super().__init__(*args, input_shape=input_shape, requires_init=True, name=name, **kwargs)
         
-    def _init_vars(self, x):
-        if not self.init and self.init_from_data:
-            input_shape = x.shape
-            # assign initial values based on mean/stdev of first batch
-            mus = tf.math.reduce_mean(x, axis=[i for i in range(input_shape.rank-1)], keepdims=True)
-            sigmas = tf.math.reduce_std(x, axis=[i for i in range(input_shape.rank-1)], keepdims=True)
-            self.log_s = tf.Variable(-tf.math.log(sigmas), name=f'{self.name}/log_s')
-            self.b = tf.Variable(-mus, name=f'{self.name}/b')
-            self.init = True
-        elif not self.init:
-            input_shape = x.shape
+    def _initialize(self, input_shape):
+        if not self.init:
             mus = tf.random.normal([1 for _ in range(input_shape.rank-1)] + [input_shape[-1]], mean=0.0, stddev=0.1)
-            log_sigmas = tf.random.normal([1 for _ in range(input_shape.rank-1)] + [input_shape[-1]], mean=1.0, stddev=0.1)
+            log_sigmas = tf.random.normal([1 for _ in range(input_shape.rank-1)] + [input_shape[-1]], mean=0.0, stddev=0.1)
             self.log_s = tf.Variable(log_sigmas, name=f'{self.name}/log_s')
             self.b = tf.Variable(mus, name=f'{self.name}/b')
             self.init = True
-    
-    def _inverse(self, x):
-        self._init_vars(x)
-        return tf.math.exp(self.log_s)*x + self.b
+            
+    def _init_from_data_if_configured(self, x):
+        if self.init_from_data:
+            # assign initial values based on mean/stdev of first batch
+            input_shape = x.shape
+            mus = tf.math.reduce_mean(x, axis=[i for i in range(input_shape.rank-1)], keepdims=True)
+            if sum(input_shape[:-1]) > 3:
+                sigmas = tf.math.reduce_std(x, axis=[i for i in range(input_shape.rank-1)], keepdims=True)
+            else:
+                # if all non-channel dimensions have only one element, initialize with ones to avoid inf values
+                sigmas = tf.ones(input_shape)
+            self.log_s.assign(-tf.math.log(sigmas))
+            self.b.assign(-mus)
+            self.init_from_data = False
+
+    def _forward(self, x):
+        self._init_from_data_if_configured(x)
+        y = tf.math.exp(self.log_s)*x + self.b
+        fldj = tf.math.reduce_sum(self.log_s)*np.prod(y.shape[1:-1])
+        return y, tf.broadcast_to(fldj, (x.shape[0],))
         
-    def _forward(self, y):
-        self._init_vars(y)
-        return tf.math.exp(-self.log_s)*(y - self.b)
-        
-    def _inverse_log_det_jacobian(self, x):
-        self._init_vars(x)
-        ildj = tf.math.reduce_sum(self.log_s)
-        return tf.broadcast_to(ildj, (x.shape[0],))
-    
-    def _forward_log_det_jacobian(self, y):
-        return -self._inverse_log_det_jacobian(y)
+    def _inverse(self, y):
+        self._init_from_data_if_configured(y)
+        x = tf.math.exp(-self.log_s)*(y - self.b)
+        ildj = -tf.math.reduce_sum(self.log_s)*np.prod(y.shape[1:-1])
+        return x, tf.broadcast_to(ildj, (y.shape[0],))
     
     def _regularization_loss(self):
         return self.alpha*tf.math.reduce_sum(self.log_s**2)

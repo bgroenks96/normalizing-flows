@@ -1,32 +1,29 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
+from flows import Transform
 
-class Squeeze(tfp.bijectors.Bijector):
-    def __init__(self, factor=2,
-                 forward_min_event_ndims=0, inverse_min_event_ndims=0,
-                 *args, **kwargs):
+class Squeeze(Transform):
+    def __init__(self, input_shape=None, factor=2, *args, **kwargs):
         """
-        Creates a new bijector for the "squeeze" operation, where spatial dimensions are folded
+        Creates a new transform for the "squeeze" operation, where spatial dimensions are folded
         into channel dimensions. This bijector requires the input data to be 3-dimensional,
-        height-width-channel (HWC) formatted images (exluding the batch axis).
+        height-width-channel (HWC) formatted images (exluding the batch axis). This implementation
+        provides automatic padding/cropping for image sizes not divisible by factor.
         """
-        super().__init__(forward_min_event_ndims=forward_min_event_ndims,
-                         inverse_min_event_ndims=inverse_min_event_ndims,
-                         *args, **kwargs)
         self.factor = factor
         self.padding_x = None
         self.padding_y = None
+        super().__init__(*args, input_shape=input_shape, requires_init=True, **kwargs)
         
-    def _init_vars(self, input_shape):
+    def _initialize(self, shape):
         if self.padding_x is None or self.padding_y is None:
-            batch_size, ht, wt, c = input_shape
+            batch_size, ht, wt, c = shape[0], shape[1], shape[2], shape[3]
             self.padding_y, self.padding_x = ht % self.factor, wt % self.factor
 
     def _forward(self, x):
-        self._init_vars(x.shape)
         shape = x.shape
         factor = self.factor
-        assert shape.rank == 4, 'input should be 4-dimensional'
+        assert shape.rank == 4, f'input should be 4-dimensional, got {shape}'
         h, w, c = shape[1:]
         # pad to divisor
         x = tf.image.resize_with_crop_or_pad(x, h+self.padding_y, w+self.padding_x)
@@ -38,13 +35,12 @@ class Squeeze(tfp.bijectors.Bijector):
         x_ = tf.transpose(x_, [0, 1, 3, 5, 2, 4])
         # reshape to final output shape
         y = tf.reshape(x_, (-1, h // factor, w // factor, c*factor*factor))
-        return y
+        return y, 0.0
 
     def _inverse(self, y):
-        self._init_vars(y.shape)
         shape = y.shape
         factor = self.factor
-        assert shape.rank == 4, 'input should be 4-dimensional'
+        assert shape.rank == 4, f'input should be 4-dimensional, got {shape}'
         h, w, c = shape[1:]
         c_factored = c // factor // factor
         # reshape to intermediate tensor
@@ -55,10 +51,15 @@ class Squeeze(tfp.bijectors.Bijector):
         x = tf.reshape(y_, (-1, h*factor, w*factor, c_factored))
         # crop out padding
         x = tf.image.resize_with_crop_or_pad(x, h*factor-self.padding_y, w*factor-self.padding_x)
-        return x
+        return x, 0.0
     
-    def _forward_log_det_jacobian(self, x):
-        return tf.constant(0.0, dtype=x.dtype)
+    def _forward_shape(self, shape):
+        assert self.input_shape is not None, 'not initialized'
+        factor = self.factor
+        return tf.TensorShape((shape[0], shape[1] // factor, shape[2] // factor, shape[3]*factor*factor))
     
-    def _inverse_log_det_jacobian(self, y):
-        return tf.constant(0.0, dtype=y.dtype)
+    def _inverse_shape(self, shape):
+        assert self.input_shape is not None, 'not initialized'
+        factor = self.factor
+        pad_x, pad_y = self.padding_x, self.padding_y
+        return tf.TensorShape((shape[0], shape[1]*factor+pad_x, shape[2]*factor+pad_y, shape[3]//factor//factor))

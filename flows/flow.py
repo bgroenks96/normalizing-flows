@@ -1,18 +1,18 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
+from typing import List
 from .transform import Transform
 
-class Flow:
-    def __init__(self, *steps):
+class Flow(Transform):
+    def __init__(self, steps: List[Transform], input_shape=None, name='flow', *args, **kwargs):
         """
         Constructs a new flow as a sequence of transforms or sub-flows.
         """
-        assert all([isinstance(step, Flow) or isinstance(step, Transform) for step in steps]),
-               'All steps of flow must be either a sub-type of Transform or another Flow'
         self.steps = steps
         self.num_steps = len(steps)
         # add num_flows alias for legacy code
         self.num_flows = self.num_steps
+        super().__init__(*args, input_shape=input_shape, name=name, **kwargs)
     
     @staticmethod
     def uniform(self, num_flows, transform_init):
@@ -25,10 +25,14 @@ class Flow:
         transforms = [transform_init(i) for i in range(num_flows)]
         transform_type = type(self.transforms[0])
         assert all([transform_type == type(t) for t in self.transforms]), "All transforms should have the same type for uniform flow"
-        return Flow(*transforms)
+        return Flow(transforms)
+    
+    def _initialize(self, input_shape):
+        for step in self.steps:
+            step.initialize(input_shape)
+            input_shape = step._forward_shape(input_shape)
 
-    @tf.function
-    def forward(self, z_0, *params: tf.Tensor, return_sequence=False, **kwargs):
+    def _forward(self, z_0, *params: tf.Tensor, **kwargs):
         """
         Computes the forward pass of the flow: z_k = f_k . f_k-1 ... f_1(z)
 
@@ -38,17 +42,16 @@ class Flow:
         """
         assert len(params) == 0 or len(params) == self.num_flows, 'arguments must be provided for all flow steps or none'
         n_flows, n_params = self.num_steps, self.param_count(tf.shape(z_0))
-        zs = [z_0]
+        z_i = z_0
         ldj = 0.0
-        for i, transform in enumerate(self.transforms):
+        for i, step in enumerate(self.steps):
             params_i = [params[i]] if len(params) > 0 else []
-            z_k, ldj_k = transform.forward(zs[-1], *params_i)
-            ldj += ldj_k
-            zs.append(z_k)
-        return (zs, ldj) if return_sequence else (zs[-1], ldj)
+            z_i, ldj_i = step.forward(z_i, *params_i, **kwargs)
+            #tf.debugging.assert_all_finite(z_i, f'found nan values after step {i}: {step.name}')
+            ldj += ldj_i
+        return z_i, ldj
     
-    @tf.function
-    def inverse(self, z, *params: tf.Tensor, return_sequence=False, **kwargs):
+    def _inverse(self, z, *params: tf.Tensor, **kwargs):
         """
         Computes the inverse pass of the flow: z_0 = f^-1_1 . f^-1_2 ... f^-1_k(z)
 
@@ -56,17 +59,18 @@ class Flow:
         z_0    : (batch_size, d)
         params : optional sequence of tensors (batch_size, m_i) where m_i is the number of parameters for flow step i
         """
-        assert len(args) == 0 or len(args) == self.num_flows, 'arguments must be provided for all flow steps or none'
-        n_flows, n_params = self.num_flows, self.param_count(tf.shape(z))
-        args = tf.reshape(args, (-1, n_flows, n_params // n_flows))
-        zs = [z]
+        assert len(params) == 0 or len(params) == self.num_flows, 'arguments must be provided for all flow steps or none'
+        n_flows, n_params = self.num_steps, self.param_count(tf.shape(z))
+        z_i = z
         ldj = 0.0
-        for i, transform in enumerate(self.transforms):
+        for i, step in enumerate(reversed(self.steps)):
             params_i = [params[i]] if len(params) > 0 else []
-            z_j, ldj_j = transform.inverse(zs[-1], args[:,i])
-            ldj -= ldj_j
-            zs.append(z_j)
-        return (zs, ldj) if return_sequence else (zs[-1], ldj)
+            z_i, ldj_i = step.inverse(z_i, *params_i, **kwargs)
+            ldj += ldj_i
+        return z_i, ldj
+    
+    def _regularization_loss(self):
+        return tf.math.add_n([t.regularization_loss() for t in self.steps])
 
-    def param_count(self, shape):
-        return sum([t.param_count(shape) for t in self.transforms])
+    def _param_count(self, shape):
+        return tf.math.reduce_sum([t.param_count(shape) for t in self.steps])

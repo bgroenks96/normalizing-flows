@@ -28,7 +28,7 @@ class Planar(Transform):
         return wz + b
 
     @tf.function
-    def forward(self, z, args: tf.Tensor):
+    def _forward(self, z, args: tf.Tensor):
         """
         Computes the forward pass of the transformation: z' = z + uh(wz + b)
 
@@ -52,5 +52,6 @@ class Planar(Transform):
         ldj = tf.math.log(tf.math.abs(1.0 + tf.matmul(dh_dz, u_hat)))
         return tf.squeeze(z_, axis=-1), ldj
 
-    def param_count(self, d):
+    def _param_count(self, shape):
+        d = shape[-1]
         return 2*d + 1

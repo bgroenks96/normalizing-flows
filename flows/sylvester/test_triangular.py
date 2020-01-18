@@ -10,13 +10,13 @@ def test_param_count():
     r = d**2
     diags = 2*d
     bias = d
-    assert tsnf.param_count(d) == r + diags + bias
+    assert tsnf.param_count(tf.TensorShape((None,d))) == r + diags + bias
 
 def test_parameterize():
     d = 2
     expected_triu_params = (d**2 + d) // 2
     tsnf = TriangularSylvester()
-    param_count = tsnf.param_count(d)
+    param_count = tsnf.param_count(tf.TensorShape((None,d)))
     args = tf.ones((BATCH_SIZE, param_count))
     r1, r2, diag_1, diag_2, b = tsnf._parameterize(tf.constant(d), args)
     # check r1
@@ -60,9 +60,9 @@ def test_permute_reverse():
 def test_forward_output_shapes():
     d = 2
     tsnf = TriangularSylvester()
-    param_count = tsnf.param_count(d)
+    param_count = tsnf.param_count(tf.TensorShape((None,d)))
     args = tf.ones((BATCH_SIZE, param_count))
     z = tf.ones((BATCH_SIZE, d))
     z_out, ldj = tsnf.forward(z, args)
-    assert z_out.shape == (BATCH_SIZE, d), z_out.shape
-    assert ldj.shape == (BATCH_SIZE, 1), ldj.shape
+    assert z_out.shape == tf.TensorShape((BATCH_SIZE, d)), z_out.shape
+    assert ldj.shape == tf.TensorShape((BATCH_SIZE, 1)), ldj.shape

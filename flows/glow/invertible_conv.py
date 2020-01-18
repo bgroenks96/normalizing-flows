@@ -2,45 +2,31 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
 import scipy
-from .utils import tf_init_var
+from flows import Transform
 
-class InvertibleConv(tfp.bijectors.Bijector):
-    def __init__(self, name='invertible_1x1_conv', forward_min_event_ndims=1, inverse_min_event_ndims=1,
-                 *args, **kwargs):
-        super().__init__(*args,
-                         forward_min_event_ndims=forward_min_event_ndims,
-                         inverse_min_event_ndims=inverse_min_event_ndims,
-                         name=name, **kwargs)
+class InvertibleConv(Transform):
+    def __init__(self, input_shape=None, name='invertible_1x1_conv', *args, **kwargs):
         self.W = None
+        super().__init__(*args, input_shape=input_shape, requires_init=True, name=name, **kwargs)
 
-    def _init_vars(self, x):
+    def _initialize(self, input_shape):
         if self.W is None:
-            input_shape = x.shape
             assert input_shape.rank == 4, 'input should be 4-dimensional'
             batch_size, wt, ht, c = input_shape
             ortho_init = tf.initializers.Orthogonal()
             self.W = ortho_init((1,1,c,c))
             #self.W = tf.reshape(tf.eye(c,c), (1,1,c,c))
     
-    def _inverse(self, x):
+    def _forward(self, x):
         self._init_vars(x)
         y = tf.nn.conv2d(x, self.W, [1,1,1,1], padding='SAME')
-        return y
+        fldj = tf.math.log(tf.math.abs(tf.linalg.det(self.W)))
+        return y, tf.broadcast_to(fldj, (x.shape[0],))
     
-    def _forward(self, y):
+    def _inverse(self, y):
         self._init_vars(y)
-        x = tf.nn.conv2d(y, tf.linalg.inv(self.W), [1,1,1,1], padding='SAME')
-        return x
-    
-    def _inverse_log_det_jacobian(self, x):
-        self._init_vars(x)
-        det = tf.linalg.det(self.W)
-        fldj = tf.math.log(tf.math.abs(det))
-        return tf.squeeze(tf.broadcast_to(fldj, (x.shape[0],1)))
-
-    def _forward_log_det_jacobian(self, x):
-        self._init_vars(x)
-        det = tf.linalg.det(tf.linalg.inv(self.W))
-        ildj = tf.math.log(tf.math.abs(det))
-        return tf.broadcast_to(ildj, (x.shape[0],1))
+        W_inv = tf.linalg.inv(self.W)
+        x = tf.nn.conv2d(y, W_inv, [1,1,1,1], padding='SAME')
+        ildj = tf.math.log(tf.math.abs(tf.linalg.det(W_inv)))
+        return x, tf.broadcast_to(ildj, (y.shape[0],))
     

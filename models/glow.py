@@ -1,20 +1,20 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
-from flows.glow import GlowFlow, RegularizedBijector
+from flows.glow import GlowFlow
 
 class Glow(tf.Module):
     def __init__(self,
                  prior,
                  prior_parameterize=None,
                  num_layers=1, depth_per_layer=1,
-                 optimizer=tf.keras.optimizers.Adam(lr=1.0E-3),
+                 optimizer=tf.keras.optimizers.Adam(lr=1.0E-4, amsgrad=True),
                  clip_grads=True,
                  *glow_args, **glow_kwargs):
         """
         Creates a new Glow model for variational inference.
         
         prior : either a tfp.distributions.Distribution instance that represents the variational prior,
-                or a function f: (X -> Theta) where X is the model inputs and Theta is a tensor of distribution parameters.
+                or a Keras Model f: (X -> Theta) where X is the model inputs and Theta is a tensor of distribution parameters.
                 In the latter case, prior_parameterize must also be provided.
         prior_parameterize : a function f: (Theta -> tfp.distributions.Distribution) which parameterizes a distribution
                              from the parameter values produced by 'prior'
@@ -26,13 +26,28 @@ class Glow(tf.Module):
         glow_kwargs : additional keyword arguments for GlowFlow
         """
         if not isinstance(prior, tfp.distributions.Distribution):
+            assert isinstance(prior, tf.keras.Model), 'callable prior should be of type tf.keras.Model'
             assert prior_parameterize is not None, 'prior_parameterize must be provided for conditional priors'
         self.glow = GlowFlow(num_layers=num_layers, depth=depth_per_layer, *glow_args, **glow_kwargs)
         self.prior = prior
         self.prior_parameterize = prior_parameterize
         self.optimizer = optimizer
         self.clip_grads = clip_grads
-        self.reg_modules = None
+        self.prior_shape = None
+        
+    def _prior(self, x):
+        if isinstance(self.prior, tfp.distributions.Distribution):
+            prior = self.prior
+            reg_losses = []
+        else:
+            prior_params = self.prior(x)
+            prior = self.prior_parameterize(prior_params)
+            reg_losses = self.prior.get_losses_for(None)
+        if self.prior_shape is None:
+            self.prior_shape = prior.batch_shape + prior.event_shape
+            with tf.init_scope():
+                self.glow.initialize(self.prior_shape)
+        return prior, reg_losses
         
     def train_batch(self, x):
         """
@@ -45,36 +60,25 @@ class Glow(tf.Module):
                 and, if clip_grads is True, grad_norm is the global max gradient norm
         """
         with tf.GradientTape() as tape:
-            if isinstance(self.prior, tfp.distributions.Distribution):
-                prior = self.prior
-            else:
-                prior_params = self.prior(x)
-                prior = self.prior_parameterize(prior_params)
-            z = self.glow.inverse(x)
-            prior_log_probs = tf.math.reduce_sum(prior.log_prob(z), axis=[1,2,3])
-            ildj = self.glow.inverse_log_det_jacobian(x, event_ndims=x.shape.rank-1)
-            # clip ILDJ to have same norm as prior log probs; this is for optimization purposes only!
-            ildj = tf.clip_by_norm(ildj, tf.norm(prior_log_probs))
-            log_probs = prior_log_probs + ildj
-            if not self.reg_modules:
-                self.reg_modules = [b for b in self.submodules if isinstance(b, RegularizedBijector)]
+            prior, reg_losses = self._prior(x)
+            z, ldj = self.glow.forward(x)
+            prior_log_probs = prior.log_prob(z)
+            reg_losses += [self.glow._regularization_loss()]
+            log_probs = prior_log_probs + ldj
             nll_loss = -tf.math.reduce_mean(log_probs)
-            reg_loss = [b._regularization_loss() for b in self.reg_modules]
-            total_loss = nll_loss + tf.math.reduce_sum(reg_loss)
+            total_loss = nll_loss + tf.math.add_n(reg_losses)
             gradients = tape.gradient(total_loss, self.trainable_variables)
             if self.clip_grads:
                 gradients, grad_norm = tf.clip_by_global_norm(gradients, 1.0)
             self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         if self.clip_grads:
-            return total_loss, nll_loss, -tf.math.reduce_mean(prior_log_probs), tf.math.reduce_mean(ildj), grad_norm
+            return total_loss, nll_loss, -tf.math.reduce_mean(prior_log_probs), tf.math.reduce_mean(ldj), grad_norm
         else:
-            return total_loss, nll_loss, -tf.math.reduce_mean(prior_log_probs), tf.math.reduce_mean(ildj)
+            return total_loss, nll_loss, -tf.math.reduce_mean(prior_log_probs), tf.math.reduce_mean(ldj)
             
-    def train(self, data):
+    def train_iter(self, data):
         for x_batch in data:
-            loss, nll = self.train_batch(x_batch)
-            print(f'loss: {loss}, nll: {nll}')
-        return self
+            yield self.train_batch(x_batch)
 
 def create_glow_estimator(prior_distribution: tfp.distributions.Distribution,
                           num_layers=1, depth_per_layer=1,

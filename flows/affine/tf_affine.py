@@ -30,11 +30,3 @@ class Affine(Transform):
             shift=self.b
         )
         return affine_bijector.inverse(y)
-
-    def _inverse_log_det_jacobian(self, y):
-        affine_bijector = tfp.bijectors.Affine(
-            scale_tril=tfp.distributions.fill_triangular(self.L),
-            scale_perturb_factor=self.V,
-            shift=self.b
-        )
-        return affine_bijector.inverse_log_det_jacobian(y, self.inverse_min_event_ndims)

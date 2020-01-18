@@ -2,23 +2,17 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
 import scipy
-from .regularized_bijector import RegularizedBijector
+from flows import Transform
 
-class InvertibleConv(RegularizedBijector):
-    def __init__(self, alpha=0.1, name='invertible_1x1_conv',
-                 forward_min_event_ndims=3, inverse_min_event_ndims=3,
-                 *args, **kwargs):
-        super().__init__(*args,
-                         forward_min_event_ndims=forward_min_event_ndims,
-                         inverse_min_event_ndims=inverse_min_event_ndims,
-                         name=name, **kwargs)
+class InvertibleConv(Transform):
+    def __init__(self, input_shape=None, alpha=1.0, name='invertible_1x1_conv', *args, **kwargs):
         self.alpha = alpha
         self.init = False
+        super().__init__(*args, input_shape=input_shape, name=name, requires_init=True, **kwargs)
 
-    def _init_vars(self, x):
+    def _initialize(self, input_shape):
         if not self.init:
-            input_shape = x.shape
-            assert input_shape.rank == 4, 'input should be 4-dimensional'
+            assert input_shape.rank == 4, f'input should be 4-dimensional, got {input_shape}'
             batch_size, wt, ht, c = input_shape
             # sample random orthogonal matrix and compute LU decomposition
             q,_ = np.linalg.qr(np.random.randn(c, c))
@@ -54,25 +48,17 @@ class InvertibleConv(RegularizedBijector):
         w_inv = tf.linalg.matmul(u_inv, tf.linalg.matmul(l_inv, p_inv))
         return tf.expand_dims(w_inv, axis=0) # (1,1,c,c)
     
-    def _inverse(self, x):
-        self._init_vars(x)
+    def _forward(self, x):
         w = self._compute_w(self.L, self.U, self.P, self.log_d, self.sgn_d)
         y = tf.nn.conv2d(x, w, [1,1,1,1], padding='SAME')
-        return y
+        fldj = tf.math.reduce_sum(self.log_d)*np.prod(x.shape[1:-1])
+        return y, tf.broadcast_to(fldj, (x.shape[0],))
     
-    def _forward(self, y):
-        self._init_vars(y)
+    def _inverse(self, y):
         w_inv = self._compute_w_inverse(self.L, self.U, self.P, self.log_d, self.sgn_d)
         x = tf.nn.conv2d(y, w_inv, [1,1,1,1], padding='SAME')
-        return x
-    
-    def _inverse_log_det_jacobian(self, x):
-        self._init_vars(x)
-        ildj = tf.math.reduce_sum(self.log_d)
-        return tf.broadcast_to(ildj, (x.shape[0],))
-
-    def _forward_log_det_jacobian(self, y):
-        return -self._inverse_log_det_jacobian(y)
+        ildj = -tf.math.reduce_sum(self.log_d)*np.prod(y.shape[1:-1])
+        return x, tf.broadcast_to(ildj, (y.shape[0],))
     
     def _regularization_loss(self):
         return self.alpha*tf.math.reduce_sum(self.log_d**2)

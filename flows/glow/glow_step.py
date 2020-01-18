@@ -1,23 +1,31 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
-from .affine_coupling import AffineCoupling, resnet_glow
+from flows import Flow, Transform
+from .affine_coupling import AffineCoupling, coupling_nn_glow
 from . import InvertibleConv, ActNorm, Squeeze
 
-class GlowStep(tfp.bijectors.Bijector):
-    def __init__(self, layer=0, coupling_nn_ctor=resnet_glow(), split_axis=-1, name='glow_step',
-                 init_from_data=True, forward_min_event_ndims=3, inverse_min_event_ndims=3,
+class GlowStep(Transform):
+    def __init__(self, input_shape=None, layer=0, coupling_nn_ctor=coupling_nn_glow(),
+                 split_axis=-1, name='glow_step', init_from_data=False,
                  *args, **kwargs):
-        super().__init__(forward_min_event_ndims=forward_min_event_ndims,
-                         inverse_min_event_ndims=inverse_min_event_ndims,
-                         name=name, *args, **kwargs)
-        act_norm = ActNorm(name=f'{self.name}/act_norm', init_from_data=init_from_data)
+        act_norm = ActNorm(name=f'{name}_act_norm', init_from_data=init_from_data)
         #batch_norm = tfp.bijectors.BatchNormalization(name=f'{self.name}/batch_norm')
-        invertible_conv = InvertibleConv(name=f'{self.name}/inv_conv')
-        affine_coupling = AffineCoupling(nn_ctor=coupling_nn_ctor, name=f'{self.name}/affine_coupling')
+        invertible_conv = InvertibleConv(name=f'{name}_inv_conv')
+        affine_coupling = AffineCoupling(nn_ctor=coupling_nn_ctor, name=f'{name}_affine_coupling')
         flow_steps = [act_norm, invertible_conv, affine_coupling]
-        self.flow = tfp.bijectors.Chain(list(reversed(flow_steps)))
         self.layer = layer
         self.split_axis = split_axis
+        self.flow = Flow(flow_steps)
+        super().__init__(*args, input_shape=input_shape, name=name, requires_init=True, **kwargs)
+        
+    def _initialize(self, input_shape):
+        if self.layer > 0:
+            axis = self.split_axis % input_shape.rank
+            split_size = input_shape[axis] // 2**self.layer
+            new_shape = tf.TensorShape((*input_shape[:axis], split_size, *input_shape[axis+1:]))
+            self.flow.initialize(new_shape)
+        else:
+            self.flow.initialize(input_shape)
         
     def _split(self, x):
         c = x.shape[-1]
@@ -31,18 +39,13 @@ class GlowStep(tfp.bijectors.Bijector):
         
     def _forward(self, x):
         x1, x2 = self._split(x)
-        y1 = self.flow._forward(x1)
-        return self._concat(y1, x2)
+        y1, fldj = self.flow.forward(x1)
+        return self._concat(y1, x2), fldj
     
     def _inverse(self, y):
         y1, y2 = self._split(y)
-        x1 = self.flow._inverse(y1)
-        return self._concat(x1, y2)
+        x1, ildj = self.flow.inverse(y1)
+        return self._concat(x1, y2), ildj
     
-    def _forward_log_det_jacobian(self, x):
-        x1, x2 = self._split(x)
-        return self.flow._forward_log_det_jacobian(x1)
-
-    def _inverse_log_det_jacobian(self, y):
-        y1, y2 = self._split(y)
-        return self.flow._inverse_log_det_jacobian(y1)
+    def _regularization_loss(self):
+        return self.flow.regularization_loss()

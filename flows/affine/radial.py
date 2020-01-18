@@ -27,14 +27,14 @@ class Radial(Transform):
         m = tf.math.log(1.0 + tf.math.exp(beta))
         return -alpha + m
 
-    def forward(self, z, alpha, beta, z_0):
+    def _forward(self, z, alpha, beta, z_0):
         beta = self._beta(alpha, beta)
         r = self._r(z, z_0)
         h = self._h(alpha, r)
         z_ = z + beta*h*(z - z_0)
         return z_
 
-    def inverse(self, y, alpha, beta, z_0):
+    def _inverse(self, y, alpha, beta, z_0):
         beta = self._beta(alpha, beta)
         yz_norm = norm(y - z_0)
         # solving || y - z_0 || = r + (beta*r)/(alpha + r) in terms of r; hopefully it's correct

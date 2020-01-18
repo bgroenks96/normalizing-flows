@@ -17,7 +17,8 @@ class TriangularSylvester(Transform):
         else:
             self.perm_z = lambda z: tf.eye(tf.shape(z)[-1], batch_shape=tf.shape(z)[:1])
 
-    def param_count(self, d):
+    def _param_count(self, shape):
+        d = shape[-1]
         return d**2 + 2*d + d
 
     @tf.function
@@ -57,7 +58,7 @@ class TriangularSylvester(Transform):
         return log_det_j
 
     @tf.function
-    def forward(self, z, params: tf.Tensor):
+    def _forward(self, z, params: tf.Tensor):
         # set up parameters
         d = tf.shape(z)[1]
         r1, r2, diag_1, diag_2, b = self._parameterize(d, params)
