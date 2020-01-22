@@ -1,13 +1,18 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
+import numpy as np
+import collections
+from flows import TransformBijector, Invert
 from flows.glow import GlowFlow
+from tqdm import tqdm
 
 class Glow(tf.Module):
     def __init__(self,
                  prior,
                  prior_parameterize=None,
                  num_layers=1, depth_per_layer=1,
-                 optimizer=tf.keras.optimizers.Adam(lr=1.0E-4, amsgrad=True),
+                 num_bins=None,
+                 optimizer=tf.keras.optimizers.Adamax(lr=1.0E-3),
                  clip_grads=True,
                  *glow_args, **glow_kwargs):
         """
@@ -31,6 +36,7 @@ class Glow(tf.Module):
         self.glow = GlowFlow(num_layers=num_layers, depth=depth_per_layer, *glow_args, **glow_kwargs)
         self.prior = prior
         self.prior_parameterize = prior_parameterize
+        self.num_bins = num_bins
         self.optimizer = optimizer
         self.clip_grads = clip_grads
         self.prior_shape = None
@@ -48,8 +54,16 @@ class Glow(tf.Module):
             with tf.init_scope():
                 self.glow.initialize(self.prior_shape)
         return prior, reg_losses
+    
+    def _preprocess(self, x):
+        if self.num_bins is not None:
+            x += tf.random.uniform(x.shape, 0, 1./self.num_bins)
+        return x
+    
+    def initialize(self, input_shape):
+        self.glow.initialize(input_shape)
         
-    def train_batch(self, x):
+    def train_batch(self, x, y=None):
         """
         Performs a single iteration of mini-batch SGD on input x.
         Returns loss, nll, prior, ildj[, grad_norm]
@@ -60,51 +74,69 @@ class Glow(tf.Module):
                 and, if clip_grads is True, grad_norm is the global max gradient norm
         """
         with tf.GradientTape() as tape:
+            y = x if y is None else y
+            num_elements = tf.cast(x.shape[1]*x.shape[2]*x.shape[3], tf.float32)
             prior, reg_losses = self._prior(x)
-            z, ldj = self.glow.forward(x)
-            prior_log_probs = prior.log_prob(z)
+            z, ldj = self.glow.forward(y)
+            prior_log_probs = tf.math.reduce_sum(prior.log_prob(z), axis=[1,2,3])
             reg_losses += [self.glow._regularization_loss()]
             log_probs = prior_log_probs + ldj
             nll_loss = -tf.math.reduce_mean(log_probs)
+            if self.num_bins is not None:
+                nll_loss = (nll_loss + np.log(self.num_bins)*num_elements) / (np.log(2)*num_elements)
             total_loss = nll_loss + tf.math.add_n(reg_losses)
             gradients = tape.gradient(total_loss, self.trainable_variables)
             if self.clip_grads:
                 gradients, grad_norm = tf.clip_by_global_norm(gradients, 1.0)
             self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
-        if self.clip_grads:
-            return total_loss, nll_loss, -tf.math.reduce_mean(prior_log_probs), tf.math.reduce_mean(ldj), grad_norm
-        else:
-            return total_loss, nll_loss, -tf.math.reduce_mean(prior_log_probs), tf.math.reduce_mean(ldj)
+        return total_loss, nll_loss, -tf.math.reduce_mean(prior_log_probs / num_elements), tf.math.reduce_mean(ldj)
             
-    def train_iter(self, data):
-        for x_batch in data:
-            yield self.train_batch(x_batch)
-
-def create_glow_estimator(prior_distribution: tfp.distributions.Distribution,
-                          num_layers=1, depth_per_layer=1,
-                          optimizer=tf.keras.optimizers.Adam(),
-                          *glow_args, **glow_kwargs):
-    glow = GlowFlow(num_layers=num_layers, depth=depth_per_layer, *glow_args, **glow_kwargs)
-    target_dist = glow(prior_distribution)
-    keras_modules = [module for module in glow.submodules if isinstance(module, tf.keras.Model)]
-    def _glow_model_fn(features, labels, mode, params, config):
-        training = (mode == tf.estimator.ModeKeys.TRAIN)
-        log_probs = target_dist.log_prob(features)
-        nll_loss = -tf.math.reduce_sum(log_probs)
-        reg_loss = tf.math.add_n(sum([model.get_losses_for(None) for model in keras_modules]))
-        total_loss = nll_loss + reg_loss
-        mean_elbo_metric = tf.keras.metrics.Mean(name='mean_elbo')
-        mean_elbo_metric.update_state(log_probs)
-        train_op = None
-        if training:
-            update_ops = sum([model.get_updates_for(None) for model in keras_modules])
-            minimize_op, _ = optimizer.get_updates(total_loss, glow.trainable_variables)
-            train_op = tf.group(minimize_op, update_ops)
-        return tf.estimator.EstimatorSpec(
-            mode=mode,
-            loss=total_loss,
-            train_op=train_op,
-            eval_metric_ops={
-                "mean_elbo": mean_elbo_metric,
-            })
-    return tf.estimator.Estimator(model_fn=_glow_model_fn)
+    def train(self, dataset: tf.data.Dataset, steps_per_epoch, num_epochs=1, has_y=False):
+        train_dataset = dataset.take(steps_per_epoch).repeat(num_epochs)
+        with tqdm(total=steps_per_epoch*num_epochs) as prog:
+            hist = collections.deque(maxlen=steps_per_epoch)
+            i = 0
+            for batch in train_dataset:
+                i += 1
+                if has_y:
+                    x, y = batch
+                    loss, nll, prior, ldj = self.train_batch(x, y)
+                else:
+                    x = batch
+                    loss, nll, prior, ldj = self.train_batch(x)
+                hist.append((loss, nll, prior, ldj))
+                prog.update(1)
+                prog.set_postfix({'epoch': (i // steps_per_epoch) + 1,
+                                  'loss': np.mean([record[0] for record in hist]),
+                                  'nll': np.mean([record[1] for record in hist]),
+                                  'prior': np.mean([record[2] for record in hist]),
+                                  'ildj': np.mean([record[3] for record in hist])})
+                
+    def predict_mean(self, x=None):
+        assert self.glow.input_shape is not None, 'model not initialized'
+        if isinstance(self.prior, tfp.distributions.Distribution):
+            z = self.prior.mean()
+        else:
+            assert x is not None, 'x must be provided for conditional prior'
+            params = self.prior(x)
+            prior = self.prior_parameterize(params)
+            z = prior.mean()
+        return self.glow.inverse(z)
+    
+    def distribution(self, x=None):
+        assert self.glow.input_shape is not None, 'model not initialized'
+        # Glow defines a forward pass as x -> z, whereas TFP bijectors
+        # define it as z -> x; so we invert the glow transform prior to
+        # constructing the TFP bijector
+        transform = TransformBijector(Invert(self.glow))
+        if isinstance(self.prior, tfp.distributions.Distribution):
+            return transform(self.prior)
+        else:
+            assert x is not None, 'x must be provided for conditional prior'
+            params = self.prior(x)
+            prior = self.prior_parameterize(params)
+            return transform(prior)
+                
+    def sample(self, x=None):
+        return self.distribution(x).sample()
+    

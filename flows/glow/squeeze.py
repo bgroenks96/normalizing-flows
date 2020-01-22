@@ -1,5 +1,6 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
+import numpy as np
 from flows import Transform
 
 class Squeeze(Transform):
@@ -56,7 +57,7 @@ class Squeeze(Transform):
     def _forward_shape(self, shape):
         assert self.input_shape is not None, 'not initialized'
         factor = self.factor
-        return tf.TensorShape((shape[0], shape[1] // factor, shape[2] // factor, shape[3]*factor*factor))
+        return tf.TensorShape((shape[0], np.ceil(shape[1] / factor), np.ceil(shape[2] / factor), shape[3]*factor*factor))
     
     def _inverse_shape(self, shape):
         assert self.input_shape is not None, 'not initialized'

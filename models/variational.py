@@ -6,7 +6,7 @@ def nll_loss(distribution_fn):
     import tensorflow_probability as tfp
     def nll(y_true, y_pred):
         def log_prob(dist: tfp.distributions.Distribution):
-            return dist.log_prob(tf.squeeze(y_true))
+            return dist.log_prob(y_true)
         dist = tfp.layers.DistributionLambda(distribution_fn, log_prob)
         nll = -dist(y_pred)
         return tf.reduce_mean(nll, axis=-1)
