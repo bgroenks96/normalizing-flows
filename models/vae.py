@@ -5,7 +5,7 @@ from tensorflow.keras.layers import Dense, Input, Lambda, Flatten, Reshape, Conv
 from tensorflow.keras.callbacks import LambdaCallback
 from tensorflow.keras.optimizers import Adamax
 from flows import Flow
-from layers import GatedConv2D, GatedConv2DTranspose, FlowLayer
+from layers import GatedConv2D, GatedConv2DTranspose, AmortizedFlowLayer
 
 class GatedConvVAE(tf.Module):
     """
@@ -94,7 +94,8 @@ class GatedConvVAE(tf.Module):
         z_log_var = Dense(self.z_size, activation='linear')(Flatten()(h))
         outputs = [z_mu, z_log_var]
         if self.flow is not None:
-            params = Dense(self.flow.param_count(self.z_size), activation='linear')(Flatten()(h))
+            z_shape = tf.TensorShape((None,self.z_size))
+            params = Dense(self.flow.param_count(z_shape), activation='linear')(Flatten()(h))
             outputs += [params]
         return Model(inputs=input_0, outputs=outputs)
 
@@ -104,9 +105,11 @@ class GatedConvVAE(tf.Module):
         z_log_var = Input(shape=(self.z_size,))
         inputs = [z_mu, z_log_var]
         if self.flow is not None:
-            params = Input(shape=(self.flow.param_count(self.z_size),))
+            z_shape = tf.TensorShape((None, self.z_size))
+            params = Input(shape=(self.flow.param_count(z_shape),))
             inputs += [params]
-        flow_layer = FlowLayer(self.flow, min_beta=1.0E-3)
+            self.flow.initialize(z_shape)
+        flow_layer = AmortizedFlowLayer(self.flow, min_beta=1.0E-3)
         zs, ldj, kld = flow_layer(inputs)
         z_k = zs[-1]
         s = np.prod(self.encoder_strides)

@@ -3,7 +3,7 @@ import tensorflow.keras.layers as layers
 
 class AmortizedFlowLayer(layers.Layer):
     def __init__(self, flow, min_beta=0.01, max_beta=1.0):
-        super(FlowLayer, self).__init__()
+        super().__init__()
         self.flow = flow
         self.min_beta = tf.constant(min_beta)
         self.max_beta = tf.constant(max_beta)
@@ -24,9 +24,9 @@ class AmortizedFlowLayer(layers.Layer):
         # reshape and extract parameter tensors
         if self.flow is not None:
             params = tf.reshape(params, (-1, self.flow.num_steps, params.shape[-1] // self.flow.num_steps))
-            params_args = [param[:,i,:] for i in range(self.flow.num_steps)]
+            args = [params[:,i,:] for i in range(self.flow.num_steps)]
         # compute forward flow
-        zs, ldj = self.flow.forward(z_0, *params_args) if self.flow is not None else ([z_0], tf.constant(0.))
+        zs, ldj = self.flow.forward(z_0, *args, return_sequence=True) if self.flow is not None else ([z_0], tf.constant(0.))
         z_k = zs[-1]
         # compute KL divergence loss
         log_qz0 = tf.reduce_sum(-0.5*(z_log_var + (z_0 - z_mu)**2 / z_var), axis=1)
