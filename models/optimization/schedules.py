@@ -12,10 +12,11 @@ class LinearWarmupSchedule(LearningRateSchedule):
         super().__init__()
         self.initial_learning_rate = initial_learning_rate
         self.num_warmup_steps = num_warmup_steps
-        self.post_warmup_schedule = post_warmup_schedule
+        self.post_warmup_schedule = post_warmup_schedule if post_warmup_schedule is not None else lambda x: x
         self.name = name
         self.initial_learning_rate = tf.convert_to_tensor(initial_learning_rate, name="initial_learning_rate")
 
+    @tf.function
     def __call__(self, step):
         dtype = self.initial_learning_rate.dtype
         step = tf.cast(step, dtype)

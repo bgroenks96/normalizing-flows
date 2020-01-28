@@ -52,13 +52,13 @@ class InvertibleConv(Transform):
         w = self._compute_w(self.L, self.U, self.P, self.log_d, self.sgn_d)
         y = tf.nn.conv2d(x, w, [1,1,1,1], padding='SAME')
         fldj = tf.math.reduce_sum(self.log_d)*np.prod(x.shape[1:-1])
-        return y, tf.broadcast_to(fldj, (x.shape[0],))
+        return y, fldj*tf.ones(tf.shape(x)[:1])
     
     def _inverse(self, y):
         w_inv = self._compute_w_inverse(self.L, self.U, self.P, self.log_d, self.sgn_d)
         x = tf.nn.conv2d(y, w_inv, [1,1,1,1], padding='SAME')
         ildj = -tf.math.reduce_sum(self.log_d)*np.prod(y.shape[1:-1])
-        return x, tf.broadcast_to(ildj, (y.shape[0],))
+        return x, ildj*tf.ones(tf.shape(y)[:1])
     
     def _regularization_loss(self):
         return self.alpha*tf.math.reduce_sum(self.log_d**2)

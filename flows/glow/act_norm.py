@@ -29,7 +29,7 @@ class ActNorm(Transform):
             # assign initial values based on mean/stdev of first batch
             input_shape = x.shape
             mus = tf.math.reduce_mean(x, axis=[i for i in range(input_shape.rank-1)], keepdims=True)
-            if sum(input_shape[:-1]) > 3:
+            if sum(input_shape[1:-1]) > 2:
                 sigmas = tf.math.reduce_std(x, axis=[i for i in range(input_shape.rank-1)], keepdims=True)
             else:
                 # if all non-channel dimensions have only one element, initialize with ones to avoid inf values
@@ -42,13 +42,13 @@ class ActNorm(Transform):
         self._init_from_data_if_configured(x)
         y = tf.math.exp(self.log_s)*(x + self.b)
         fldj = tf.math.reduce_sum(self.log_s)*np.prod(y.shape[1:-1])
-        return y, tf.broadcast_to(fldj, (x.shape[0],))
+        return y, fldj*tf.ones(tf.shape(x)[:1])
         
     def _inverse(self, y):
         self._init_from_data_if_configured(y)
         x = tf.math.exp(-self.log_s)*y - self.b
         ildj = -tf.math.reduce_sum(self.log_s)*np.prod(y.shape[1:-1])
-        return x, tf.broadcast_to(ildj, (y.shape[0],))
+        return x, ildj*tf.ones(tf.shape(y)[:1])
     
     def _regularization_loss(self):
         return self.alpha*tf.math.reduce_sum(self.log_s**2)
