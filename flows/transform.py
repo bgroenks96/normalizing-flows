@@ -87,7 +87,8 @@ class Transform(tf.Module):
         Number of parameters for this transform, given input shape
         """
         assert not self.requires_init or self.input_shape is not None, 'not initialized'
-        return self._param_count(shape)
+        count = self._param_count(shape)
+        return count.numpy() if isinstance(count, tf.Tensor) else count
     
     def initialize(self, input_shape: tf.TensorShape):
         """
@@ -98,3 +99,6 @@ class Transform(tf.Module):
         input_shape = tf.TensorShape(input_shape)
         self.input_shape = input_shape
         self._initialize(input_shape)
+        
+    def is_initialized(self):
+        return self.input_shape is not None

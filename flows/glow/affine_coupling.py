@@ -2,7 +2,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 from flows import Transform
 
-def coupling_nn_glow(hidden_dims=512, kernel_size=3, alpha=1.0E-5, epsilon=1.0E-5):
+def coupling_nn_glow(hidden_dims=512, kernel_size=3, alpha=1.0E-5, log_scale_clip=5):
     from tensorflow.keras import Model
     from tensorflow.keras.layers import Input, Conv2D, BatchNormalization, Activation, Lambda
     from tensorflow.keras.regularizers import l2
@@ -10,12 +10,14 @@ def coupling_nn_glow(hidden_dims=512, kernel_size=3, alpha=1.0E-5, epsilon=1.0E-
         x = Input((None,None,c//2))
         h_1 = Conv2D(hidden_dims, kernel_size, padding='same', kernel_regularizer=l2(alpha))(x)
         h_1 = Activation('relu')(h_1)
+        h_1 = BatchNormalization()(h_1)
         h_2 = Conv2D(hidden_dims, 1, padding='same', kernel_regularizer=l2(alpha))(h_1)
         h_2 = Activation('relu')(h_2)
-        s = Conv2D(c//2, kernel_size, padding='same', kernel_initializer='zeros')(h_2)
-        s = Activation(lambda x: tf.nn.sigmoid(x)*2.0+1.0E-5)(s)
+        h_2 = BatchNormalization()(h_2)
+        log_s = Conv2D(c//2, kernel_size, padding='same', kernel_initializer='zeros')(h_2)
+        log_s = Activation(lambda x: tf.clip_by_value(x, -log_scale_clip, log_scale_clip))(log_s)
         t = Conv2D(c//2, kernel_size, padding='same', kernel_initializer='zeros')(h_2)
-        model = Model(inputs=x, outputs=[s, t])
+        model = Model(inputs=x, outputs=[log_s, t])
         return model
     return f
 
@@ -31,18 +33,18 @@ class AffineCoupling(Transform):
     
     def _forward(self, x):
         x_a, x_b = tf.split(x, 2, axis=-1)
-        s, t = self.nn(x_b)
-        y_a = (x_a + t)*s
+        log_s, t = self.nn(x_b)
+        y_a = (x_a + t)*tf.math.exp(log_s)
         y_b = x_b
-        fldj = tf.math.reduce_sum(tf.math.log(s), axis=[1,2,3])
+        fldj = tf.math.reduce_sum(log_s, axis=[1,2,3])
         return tf.concat([y_a, y_b], axis=-1), fldj
     
     def _inverse(self, y):
         y_a, y_b = tf.split(y, 2, axis=-1)
-        s, t = self.nn(y_b)
-        x_a = y_a / s - t
+        log_s, t = self.nn(y_b)
+        x_a = y_a / tf.math.exp(log_s) - t
         x_b = y_b
-        ildj = -tf.math.reduce_sum(tf.math.log(s), axis=[1,2,3])
+        ildj = -tf.math.reduce_sum(log_s, axis=[1,2,3])
         return tf.concat([x_a, x_b], axis=-1), ildj
     
     def _regularization_loss(self):

@@ -21,17 +21,16 @@ class GlowStep(Transform):
     def _initialize(self, input_shape):
         if self.should_split:
             axis = self.split_axis % input_shape.rank
-            split_size = input_shape[axis] // 2**self.layer
-            new_shape = tf.TensorShape((*input_shape[:axis], split_size, *input_shape[axis+1:]))
+            new_size = input_shape[axis] // 2
+            new_shape = tf.TensorShape((*input_shape[:axis], new_size, *input_shape[axis+1:]))
             self.flow.initialize(new_shape)
         else:
             self.flow.initialize(input_shape)
         
     def _split(self, x):
         c = x.shape[-1]
-        c_split = c // 2**self.layer
-        assert c_split > 0, f'too few channel dimensions for layer {self.layer}'
-        return tf.split(x, [c_split, c - c_split], axis=self.split_axis) if self.should_split else (x, None)
+        assert c // 2 > 0, f'too few channel dimensions for layer {self.layer}'
+        return tf.split(x, 2, axis=self.split_axis) if self.should_split else (x, None)
         
     def _concat(self, x1, x2=None):
         assert not self.should_split or x2 is not None, 'x2 must have a value for layer > 0'
