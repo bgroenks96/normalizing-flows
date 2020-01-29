@@ -2,7 +2,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 from flows import Transform
 
-def coupling_nn_glow(hidden_dims=512, kernel_size=3, alpha=1.0E-5, log_scale_clip=5):
+def coupling_nn_glow(hidden_dims=512, kernel_size=3, alpha=1.0E-5):
     from tensorflow.keras import Model
     from tensorflow.keras.layers import Input, Conv2D, BatchNormalization, Activation, Lambda
     from tensorflow.keras.regularizers import l2
@@ -15,7 +15,7 @@ def coupling_nn_glow(hidden_dims=512, kernel_size=3, alpha=1.0E-5, log_scale_cli
         h_2 = Activation('relu')(h_2)
         h_2 = BatchNormalization()(h_2)
         log_s = Conv2D(c//2, kernel_size, padding='same', kernel_initializer='zeros')(h_2)
-        log_s = Activation(lambda x: tf.clip_by_value(x, -log_scale_clip, log_scale_clip))(log_s)
+        log_s = Activation(lambda x: tf.nn.tanh(x)*2.0)(log_s)
         t = Conv2D(c//2, kernel_size, padding='same', kernel_initializer='zeros')(h_2)
         model = Model(inputs=x, outputs=[log_s, t])
         return model

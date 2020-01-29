@@ -9,62 +9,66 @@ from tensorflow.keras import Model
 
 class VariationalModel(tf.Module):
     def __init__(self,
-                 estimator: tf.Module,
+                 prior: tf.Module,
                  parameterizer,
                  transform: flows.Transform=flows.Identity(),
+                 output_shape=None,
                  num_bins=None,
                  optimizer=tf.keras.optimizers.Adamax(lr=1.0E-3),
                  clip_grads=True):
         """
         Creates a generalized, trainable model for variational inference.
         
-        estimator     : a callable tf.Module (or Keras Model) which represents an inference function
+        prior         : a callable tf.Module (or Keras Model) which represents an inference function
                         f: (X -> Theta) such that X is the model inputs and Theta is a tensor of
                         distribution parameters.
         parameterizer : a function f: (Theta -> tfp.distributions.Distribution) which parameterizes a
-                        variational distribution from the parameter values produced by 'estimator'
+                        variational distribution from the parameter values produced by 'prior'
         transform     : a bijective transform to be applied to the initial variational density
         num_bins      : for discrete input spaces: number of discretized bins; i.e. num_bins = 2^(num_bits)
         optimizer     : optimizer to use during training
         clip_grads    : True if gradients should be clipped to the global norm, False otherwise
         """
-        self.estimator = estimator
+        self.prior = prior
         self.parameterizer = parameterizer
         self.transform = transform
         self.num_bins = num_bins
         self.optimizer = optimizer
         self.clip_grads = clip_grads
         self.scale_factor = np.log2(num_bins) if num_bins is not None else 1.0
-        self.input_shape = None
+        self.output_shape = output_shape
+        if self.output_shape is not None:
+            self.initialize(self.output_shape)
         
-    def _parameterize(self, x):
-        params = self.estimator(x)
-        variational_dist = self.parameterizer(params)
-        self.input_shape = variational_dist.batch_shape + variational_dist.event_shape
-        if self.transform is not None and not self.transform.is_initialized():
-            # initialize transform/flow if not already initialized
-            with tf.init_scope():
-                self.transform.initialize(self.input_shape)
-        return variational_dist
+    def initialize(self, output_shape):
+        self.output_shape = output_shape
+        with tf.init_scope():
+            self.transform.initialize(output_shape)
+        
+    @tf.function
+    def _prior_log_prob(self, params, z):
+        prior_dist = self.parameterizer(params)
+        return prior_dist.log_prob(z)
     
+    @tf.function
     def _preprocess(self, x):
         if self.num_bins is not None:
             x += tf.random.uniform(x.shape, 0, 1./self.num_bins)
         return x
-    
-    def initialize(self, input_shape):
-        self.input_shape = input_shape
-        self.transform.initialize(input_shape)
         
+    @tf.function
     def eval_batch(self, x, y):
+        assert self.output_shape is not None, 'model not initialized'
         num_elements = tf.cast(y.shape[1]*y.shape[2]*y.shape[3], tf.float32)
-        prior = self._parameterize(x)
+        params = self.prior(x)
+        y = self._preprocess(y)
         z, ldj = self.transform.inverse(y)
-        prior_log_probs = tf.math.reduce_sum(prior.log_prob(z), axis=[1,2,3])
+        prior_log_probs = tf.math.reduce_sum(self._prior_log_prob(params, z), axis=[1,2,3])
         log_probs = prior_log_probs + ldj
         nll_loss = -(log_probs - self.scale_factor*num_elements) / num_elements
         return nll_loss, log_probs, prior_log_probs, ldj
         
+    @tf.function
     def train_batch(self, x, y):
         """
         Performs a single iteration of mini-batch SGD on input x.
@@ -75,16 +79,16 @@ class VariationalModel(tf.Module):
                 ildj is the inverse log det jacobian,
                 and, if clip_grads is True, grad_norm is the global max gradient norm
         """
-        with tf.GradientTape() as tape:
-            nll_loss, log_probs, prior_log_probs, ldj = self.eval_batch(x, y)
-            nll_loss = tf.math.reduce_mean(nll_loss)
-            reg_losses = self.estimator.get_losses_for(None) if isinstance(self.estimator, Model) else []
-            reg_losses += [self.transform._regularization_loss()]
-            objective = nll_loss + tf.math.add_n(reg_losses)
-            gradients = tape.gradient(objective, self.trainable_variables)
-            if self.clip_grads:
-                gradients, grad_norm = tf.clip_by_global_norm(gradients, 1.0)
-            self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+        assert self.output_shape is not None, 'model not initialized'
+        nll_loss, log_probs, prior_log_probs, ldj = self.eval_batch(x, y)
+        nll_loss = tf.math.reduce_mean(nll_loss)
+        reg_losses = self.prior.get_losses_for(None) if isinstance(self.prior, Model) else []
+        reg_losses += [self.transform._regularization_loss()]
+        objective = nll_loss + tf.math.add_n(reg_losses)
+        gradients = self.optimizer.get_gradients(objective, self.trainable_variables)
+        if self.clip_grads:
+            gradients, grad_norm = tf.clip_by_global_norm(gradients, 1.0)
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         num_elements = tf.cast(y.shape[1]*y.shape[2]*y.shape[3], tf.float32)
         prior_log_probs = -tf.math.reduce_mean(prior_log_probs / num_elements)
         ldj = tf.math.reduce_mean(ldj) / num_elements
@@ -120,26 +124,26 @@ class VariationalModel(tf.Module):
                     nll, _, prior, _ = self.eval_batch(*params)
                     validation_hist.append((nll, prior))
                 
-    def predict_mean(self, x=None):
-        x = tf.zeros(self.input_shape) if x is None else x
-        params = self.estimator(x)
+    def predict_mean(self, x=None, n=1):
+        x = tf.zeros((n, *self.output_shape[1:])) if x is None else x
+        params = self.prior(x)
         prior = self.parameterizer(params)
         z = prior.mean()
         x, _ = self.transform.forward(z)
         return x
                 
-    def sample(self, x=None):
-        x = tf.zeros(self.input_shape) if x is None else x
-        params = self.estimator(x)
+    def sample(self, x=None, n=1):
+        x = tf.zeros((n, *self.output_shape[1:])) if x is None else x
+        params = self.prior(x)
         prior = self.parameterizer(params)
         z = prior.sample()
         x, _ = self.transform.forward(z)
         return x
     
     def distribution(self, x=None, invert=False):
-        x = tf.zeros(self.input_shape) if x is None else x
+        x = tf.zeros((n, *self.output_shape[1:])) if x is None else x
         transform = flows.TransformBijector(self.transform)
-        params = self.estimator(x)
+        params = self.prior(x)
         prior = self.parameterizer(params)
         return transform(prior)
         
