@@ -27,6 +27,16 @@ class Flow(Transform):
         assert all([transform_type == type(t) for t in transforms]), "All transforms should have the same type for uniform flow"
         return Flow(transforms)
     
+    def _forward_shape(self, input_shape):
+        for step in self.steps:
+            input_shape = step._forward_shape(input_shape)
+        return input_shape
+    
+    def _inverse_shape(self, input_shape):
+        for step in reversed(self.steps):
+            input_shape = step._inverse_shape(input_shape)
+        return input_shape
+    
     def _initialize(self, input_shape):
         for step in self.steps:
             step.initialize(input_shape)
@@ -40,11 +50,10 @@ class Flow(Transform):
         z_0    : (batch_size, d)
         params : optional sequence of tensors (batch_size, m_i) where m_i is the number of parameters for flow step i
         """
-        assert len(params) == 0 or len(params) == self.num_flows, 'arguments must be provided for all flow steps or none'
         zs = [z_0]
         ldj = 0.0
         for i, step in enumerate(self.steps):
-            params_i = [params[i]] if len(params) > 0 else []
+            params_i = [params[i]] if len(params) > i else []
             z_i, ldj_i = step.forward(zs[-1], *params_i, **kwargs)
             zs.append(z_i)
             ldj += ldj_i
@@ -58,11 +67,10 @@ class Flow(Transform):
         z_0    : (batch_size, d)
         params : optional sequence of tensors (batch_size, m_i) where m_i is the number of parameters for flow step i
         """
-        assert len(params) == 0 or len(params) == self.num_flows, 'arguments must be provided for all flow steps or none'
         zs = [z]
         ldj = 0.0
         for i, step in enumerate(reversed(self.steps)):
-            params_i = [params[i]] if len(params) > 0 else []
+            params_i = [params[i]] if len(params) > i else []
             z_i, ldj_i = step.inverse(zs[-1], *params_i, **kwargs)
             zs.append(z_i)
             ldj += ldj_i

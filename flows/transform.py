@@ -13,6 +13,9 @@ class Transform(tf.Module):
         super().__init__(name=name)
         if input_shape is not None:
             self.initialize(input_shape)
+            
+    def __call__(self, z, *args, **kwargs):
+        self.forward(z, *args, **kwargs)
     
     def _initialize(self, input_shape):
         """

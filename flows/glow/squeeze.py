@@ -18,13 +18,13 @@ class Squeeze(Transform):
         
     def _initialize(self, shape):
         if self.padding_x is None or self.padding_y is None:
+            assert shape.rank == 4, f'input should be 4-dimensional, got {shape}'
             batch_size, ht, wt, c = shape[0], shape[1], shape[2], shape[3]
             self.padding_y, self.padding_x = ht % self.factor, wt % self.factor
 
-    def _forward(self, x):
+    def _forward(self, x, *args, **kwargs):
         shape = x.shape
         factor = self.factor
-        assert shape.rank == 4, f'input should be 4-dimensional, got {shape}'
         h, w, c = shape[1:]
         # pad to divisor
         x = tf.image.resize_with_crop_or_pad(x, h+self.padding_y, w+self.padding_x)
@@ -38,10 +38,9 @@ class Squeeze(Transform):
         y = tf.reshape(x_, (-1, h // factor, w // factor, c*factor*factor))
         return y, 0.0
 
-    def _inverse(self, y):
+    def _inverse(self, y, *args, **kwargs):
         shape = y.shape
         factor = self.factor
-        assert shape.rank == 4, f'input should be 4-dimensional, got {shape}'
         h, w, c = shape[1:]
         c_factored = c // factor // factor
         # reshape to intermediate tensor

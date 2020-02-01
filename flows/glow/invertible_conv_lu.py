@@ -5,7 +5,7 @@ import scipy
 from flows import Transform
 
 class InvertibleConv(Transform):
-    def __init__(self, input_shape=None, alpha=0., name='invertible_1x1_conv', *args, **kwargs):
+    def __init__(self, input_shape=None, alpha=1.0E-5, name='invertible_1x1_conv', *args, **kwargs):
         self.alpha = alpha
         self.init = False
         super().__init__(*args, input_shape=input_shape, name=name, requires_init=True, **kwargs)
@@ -41,20 +41,19 @@ class InvertibleConv(Transform):
     
     def _compute_w_inverse(self, l, u, p, log_d, sgn_d):
         d = tf.linalg.diag(tf.math.exp(log_d)*sgn_d)
-        tf.debugging.assert_all_finite(l, 'L has nan/inf values')
         l_inv = tf.linalg.inv(self.tril_mask*l + tf.eye(self.input_shape[-1]))
         u_inv = tf.linalg.inv(tf.transpose(self.tril_mask, [0,2,1])*u + d)
         p_inv = tf.linalg.inv(p)
         w_inv = tf.linalg.matmul(u_inv, tf.linalg.matmul(l_inv, p_inv))
         return tf.expand_dims(w_inv, axis=0) # (1,1,c,c)
     
-    def _forward(self, x):
+    def _forward(self, x, **kwargs):
         w = self._compute_w(self.L, self.U, self.P, self.log_d, self.sgn_d)
         y = tf.nn.conv2d(x, w, [1,1,1,1], padding='SAME')
         fldj = tf.math.reduce_sum(self.log_d)*np.prod(x.shape[1:-1])
         return y, fldj*tf.ones(tf.shape(x)[:1])
     
-    def _inverse(self, y):
+    def _inverse(self, y, **kwargs):
         w_inv = self._compute_w_inverse(self.L, self.U, self.P, self.log_d, self.sgn_d)
         x = tf.nn.conv2d(y, w_inv, [1,1,1,1], padding='SAME')
         ildj = -tf.math.reduce_sum(self.log_d)*np.prod(y.shape[1:-1])

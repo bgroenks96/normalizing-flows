@@ -3,11 +3,11 @@ import tensorflow_probability as tfp
 import numpy as np
 from flows import Transform
 
-class ActNorm(Transform):
-    def __init__(self, input_shape=None, alpha=1.0E-5, name='actnorm',
+class BatchNorm(Transform):
+    def __init__(self, input_shape=None, alpha=0., name='batchnorm',
                  *args, **kwargs):    
         """
-        Creates a new activation normalization (actnorm) transform.
+        Creates a new batch normalization (batchnorm) transform.
         """
         self.alpha = alpha
         self.log_s = None
@@ -23,30 +23,26 @@ class ActNorm(Transform):
             self.b = tf.Variable(mus, name=f'{self.name}/b')
             self.init = True
             
-    def _init_from_data(self, x):
+    def _standardize(self, x):
         # assign initial values based on mean/stdev of first batch
         input_shape = x.shape
         mus = tf.math.reduce_mean(x, axis=[i for i in range(input_shape.rank-1)], keepdims=True)
-        if tf.math.reduce_sum(tf.shape(x)[1:-1]) > 2:
+        if sum(input_shape[1:-1]) > 2:
             sigmas = tf.math.reduce_std(x, axis=[i for i in range(input_shape.rank-1)], keepdims=True)
         else:
-            # if all non-channel dimensions have only one element, initialize with ones to avoid inf values
+            # if all non-channel dimensions have only one element, set variances to one to avoid inf values
             sigmas = tf.ones(input_shape)
-        self.log_s.assign(-tf.math.log(sigmas))
-        self.b.assign(-mus)
-        self.init_from_data = False
+        return (x - mus) / (sigmas+1.0E-6)
 
-    def _forward(self, x, **kwargs):
-        if 'ddi' in kwargs and kwargs['ddi']:
-            self._init_from_data(x)
-        y = tf.math.exp(self.log_s)*(x + self.b)
+    def _forward(self, x, *args, **kwargs):
+        x = self._standardize(x)
+        y = tf.math.exp(self.log_s)*x + self.b
         fldj = tf.math.reduce_sum(self.log_s)*np.prod(y.shape[1:-1])
         return y, fldj*tf.ones(tf.shape(x)[:1])
         
-    def _inverse(self, y, **kwargs):
-        if 'ddi' in kwargs and kwargs['ddi']:
-            self._init_from_data(y)
-        x = tf.math.exp(-self.log_s)*y - self.b
+    def _inverse(self, y, *args, **kwargs):
+        y = self._standardize(y)
+        x = tf.math.exp(-self.log_s)*(y - self.b)
         ildj = -tf.math.reduce_sum(self.log_s)*np.prod(y.shape[1:-1])
         return x, ildj*tf.ones(tf.shape(y)[:1])
     

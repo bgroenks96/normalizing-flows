@@ -6,12 +6,12 @@ class ActNorm(layers.Layer):
         super().__init__()
 
     def build(self, input_shape):
-        self.w = self.add_weight(shape=(*[1 for _ in input_shape[:-1]], input_shape[-1]),
-                                 initializer='random_normal',
+        self.log_s = self.add_weight(shape=(*[1 for _ in input_shape[:-1]], input_shape[-1]),
+                                 initializer='zeros',
                                  trainable=True)
         self.b = self.add_weight(shape=(*[1 for _ in input_shape[:-1]], input_shape[-1]),
-                                 initializer='random_normal',
+                                 initializer='zeros',
                                  trainable=True)
 
     def call(self, inputs):
-        return tf.math.multiply(inputs + self.b, self.w)
+        return tf.math.multiply(inputs + self.b, tf.math.exp(self.log_s))
