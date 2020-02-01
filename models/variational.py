@@ -57,19 +57,22 @@ class VariationalModel(tf.Module):
         return x
         
     @tf.function
-    def eval_batch(self, x, y):
+    def eval_batch(self, x, y, **flow_kwargs):
         assert self.output_shape is not None, 'model not initialized'
         num_elements = tf.cast(y.shape[1]*y.shape[2]*y.shape[3], tf.float32)
         params = self.prior(x)
         y = self._preprocess(y)
-        z, ldj = self.transform.inverse(y)
+        z, ldj = self.transform.inverse(y, **flow_kwargs)
+        z = tf.reshape(z, tf.shape(y))
         prior_log_probs = tf.math.reduce_sum(self._prior_log_prob(params, z), axis=[1,2,3])
         log_probs = prior_log_probs + ldj
-        nll_loss = -(log_probs - self.scale_factor*num_elements) / num_elements
-        return nll_loss, log_probs, prior_log_probs, ldj
+        nll = -(log_probs - self.scale_factor*num_elements) / num_elements
+        return tf.math.reduce_mean(nll), \
+               -tf.math.reduce_mean(prior_log_probs) / num_elements, \
+               tf.math.reduce_mean(ldj) / num_elements
         
     @tf.function
-    def train_batch(self, x, y):
+    def train_batch(self, x, y, **flow_kwargs):
         """
         Performs a single iteration of mini-batch SGD on input x.
         Returns loss, nll, prior, ildj[, grad_norm]
@@ -80,55 +83,50 @@ class VariationalModel(tf.Module):
                 and, if clip_grads is True, grad_norm is the global max gradient norm
         """
         assert self.output_shape is not None, 'model not initialized'
-        nll_loss, log_probs, prior_log_probs, ldj = self.eval_batch(x, y)
-        nll_loss = tf.math.reduce_mean(nll_loss)
+        nll, prior_nll, ldj = self.eval_batch(x, y, **flow_kwargs)
         reg_losses = self.prior.get_losses_for(None) if isinstance(self.prior, Model) else []
         reg_losses += [self.transform._regularization_loss()]
-        objective = nll_loss + tf.math.add_n(reg_losses)
+        objective = nll + tf.math.add_n(reg_losses)
         gradients = self.optimizer.get_gradients(objective, self.trainable_variables)
         if self.clip_grads:
             gradients, grad_norm = tf.clip_by_global_norm(gradients, 1.0)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         num_elements = tf.cast(y.shape[1]*y.shape[2]*y.shape[3], tf.float32)
-        prior_log_probs = -tf.math.reduce_mean(prior_log_probs / num_elements)
-        ldj = tf.math.reduce_mean(ldj) / num_elements
-        return objective, nll_loss, prior_log_probs, ldj
+        return objective, nll, prior_nll, ldj
             
-    def train(self, train_data: tf.data.Dataset, steps_per_epoch, num_epochs=1, supervised=False,
-              validation_data: tf.data.Dataset=None, validation_steps=1):
+    def train(self, train_data: tf.data.Dataset, steps_per_epoch, num_epochs=1, supervised=False):
         train_data = train_data.take(steps_per_epoch).repeat(num_epochs)
-        if validation_data is not None:
-            validation_data = validation_data.repeat(num_epochs)
         with tqdm(total=steps_per_epoch*num_epochs) as prog:
             hist = collections.deque(maxlen=steps_per_epoch)
-            validation_hist = collections.deque(maxlen=steps_per_epoch)
             for epoch in range(num_epochs):
-                for batch in train_data.take(steps_per_epoch):
+                for i, batch in enumerate(train_data.take(steps_per_epoch)):
                     params = batch if supervised else [tf.zeros(batch.shape), batch]
                     loss, nll, prior, _ = self.train_batch(*params)
                     hist.append((loss, nll, prior))
                     prog.update(1)
-                    prog.set_postfix({'epoch': epoch,
+                    prog.set_postfix({'epoch': epoch+1,
                                       'loss': np.mean([record[0] for record in hist]),
                                       'nll': np.mean([record[1] for record in hist]),
-                                      'prior': np.mean([record[2] for record in hist]),
-                                      'test_nll': np.mean([record[0] for record in validation_hist]) \
-                                                  if len(validation_hist) > 0 else '-',
-                                      'test_prior': np.mean([record[1] for record in validation_hist]) \
-                                                  if len(validation_hist) > 0 else '-'})
-                if validation_data is None:
-                    continue
-                validation_hist.clear()
-                for batch in validation_data.take(validation_steps):
-                    params = batch if has_y else [batch]
-                    nll, _, prior, _ = self.eval_batch(*params)
-                    validation_hist.append((nll, prior))
+                                      'prior': np.mean([record[2] for record in hist])})
+                    
+    def evaluate(self, validation_data: tf.data.Dataset, validation_steps, supervised=False):
+        validation_data = validation_data.take(validation_steps)
+        with tqdm(total=validation_steps) as prog:
+            hist = collections.deque(maxlen=validation_steps)
+            for batch in validation_data:
+                params = batch if supervised else [tf.zeros(batch.shape), batch]
+                nll, prior, _ = self.eval_batch(*params)
+                hist.append((nll, prior))
+                prog.update(1)
+                prog.set_postfix({'nll': np.mean([record[0] for record in hist]),
+                                  'prior': np.mean([record[1] for record in hist])})
                 
     def predict_mean(self, x=None, n=1):
         x = tf.zeros((n, *self.output_shape[1:])) if x is None else x
         params = self.prior(x)
         prior = self.parameterizer(params)
         z = prior.mean()
+        z = tf.reshape(z, (tf.shape(z)[0], -1))
         x, _ = self.transform.forward(z)
         return x
                 
@@ -137,6 +135,7 @@ class VariationalModel(tf.Module):
         params = self.prior(x)
         prior = self.parameterizer(params)
         z = prior.sample()
+        z = tf.reshape(z, (tf.shape(z)[0], -1))
         x, _ = self.transform.forward(z)
         return x
     

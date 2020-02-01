@@ -69,6 +69,7 @@ class GlowFlow(Transform):
         return tf.concat(zs_reshaped, axis=-1)
     
     def _unflatten_z(self, z):
+        assert self.input_shape is not None
         batch_size = tf.shape(z)[0]
         output_shape = self._forward_shape(self.input_shape)
         st = np.prod(output_shape[1:])

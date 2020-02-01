@@ -9,7 +9,7 @@ class Invert(Transform):
         super().__init__(*args, input_shape=transform.input_shape, name=f'inverse_{transform.name}', **kwargs)
     
     def _initialize(self, input_shape):
-        self.transform._initialize(input_shape)
+        self.transform.initialize(input_shape)
 
     def _forward(self, z, *args, **kwargs):
         return self.transform.inverse(z, *args, **kwargs)
