@@ -4,9 +4,14 @@ import numpy as np
 
 class Transform(tf.Module):
     unique_id = 0
-    def __init__(self, input_shape: tf.TensorShape=None, requires_init=False, *args, **kwargs):
+    def __init__(self,
+                 input_shape: tf.TensorShape=None,
+                 requires_init=False,
+                 has_constant_ldj=False,
+                 *args, **kwargs):
         self.input_shape = input_shape
         self.requires_init = requires_init
+        self.has_constant_ldj=has_constant_ldj
         self.unique_id = Transform.unique_id
         Transform.unique_id += 1
         name = kwargs['name'] if 'name' in kwargs else '{}_{}'.format(type(self).__name__, self.unique_id)

@@ -13,7 +13,11 @@ class ActNorm(Transform):
         self.log_s = None
         self.b = None
         self.init = False
-        super().__init__(*args, input_shape=input_shape, requires_init=True, name=name, **kwargs)
+        super().__init__(*args,
+                         input_shape=input_shape,
+                         requires_init=True,
+                         has_constant_ldj=True,
+                         name=name, **kwargs)
         
     def _initialize(self, input_shape):
         if not self.init:

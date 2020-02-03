@@ -8,7 +8,12 @@ class InvertibleConv(Transform):
     def __init__(self, input_shape=None, alpha=1.0E-5, name='invertible_1x1_conv', *args, **kwargs):
         self.alpha = alpha
         self.init = False
-        super().__init__(*args, input_shape=input_shape, name=name, requires_init=True, **kwargs)
+        super().__init__(*args,
+                         input_shape=input_shape,
+                         name=name,
+                         requires_init=True,
+                         has_constant_ldj=True,
+                         **kwargs)
 
     def _initialize(self, input_shape):
         if not self.init:

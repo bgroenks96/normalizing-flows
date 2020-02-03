@@ -6,7 +6,10 @@ from . import Transform
 class Invert(Transform):
     def __init__(self, transform, *args, **kwargs):
         self.transform = transform
-        super().__init__(*args, input_shape=transform.input_shape, name=f'inverse_{transform.name}', **kwargs)
+        super().__init__(*args,
+                         input_shape=transform.input_shape,
+                         has_constant_ldj=transform.has_constant_ldj,
+                         name=f'inverse_{transform.name}', **kwargs)
     
     def _initialize(self, input_shape):
         self.transform.initialize(input_shape)
@@ -21,7 +24,7 @@ class Invert(Transform):
         return self.transform._inverse_shape(shape)
     
     def _inverse_shape(self, shape: tf.TensorShape):
-        return self.trasnform._forward_shape(shape)
+        return self.transform._forward_shape(shape)
         
     def _regularization_loss(self):
          # note: this will double count regularization if transform is added separately to the flow

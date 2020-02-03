@@ -14,7 +14,11 @@ class Squeeze(Transform):
         self.factor = factor
         self.padding_x = None
         self.padding_y = None
-        super().__init__(*args, input_shape=input_shape, requires_init=True, **kwargs)
+        super().__init__(*args,
+                         input_shape=input_shape,
+                         requires_init=True,
+                         has_constant_jacobian=True,
+                         **kwargs)
         
     def _initialize(self, shape):
         if self.padding_x is None or self.padding_y is None:

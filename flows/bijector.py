@@ -7,13 +7,12 @@ class TransformBijector(tfp.bijectors.Bijector):
     """
     def __init__(self,
                  transform: Transform,
-                 is_constant_jacobian=False,
                  forward_min_event_ndims=0,
                  inverse_min_event_ndims=0,
                  name='transform'):
         super().__init__(forward_min_event_ndims=forward_min_event_ndims,
                          inverse_min_event_ndims=inverse_min_event_ndims,
-                         is_constant_jacobian=is_constant_jacobian,
+                         is_constant_jacobian=transform.has_constant_ldj,
                          name=name)
         self.transform = transform
         
