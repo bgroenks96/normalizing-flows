@@ -86,7 +86,6 @@ class FlowLVM(tf.Module):
         if self.clip_grads:
             gradients, grad_norm = tf.clip_by_global_norm(gradients, self.clip_grads)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
-        num_elements = tf.cast(x.shape[1]*x.shape[2]*x.shape[3], tf.float32)
         return objective, nll, prior_nll, ldj
             
     def train(self, train_data: tf.data.Dataset, steps_per_epoch, num_epochs=1, **flow_kwargs):
@@ -114,11 +113,18 @@ class FlowLVM(tf.Module):
                 prog.set_postfix({'nll': np.mean([record[0] for record in hist]),
                                   'prior': np.mean([record[1] for record in hist])})
                 
+    def encode(self, x):
+        z, _ = self.transform.inverse(x)
+        return z
+    
+    def decode(self, z):
+        x, _ = self.transform.forward(z)
+        return x
+                
     def sample(self, n=1):
         assert self.input_shape is not None, 'model not initialized'
         event_ndims = self.prior.event_shape.rank
         z_shape = self.input_shape[1:]
         z = self.prior.sample((n,*z_shape[:len(z_shape)-event_ndims]))
         z = tf.reshape(z, (n, -1))
-        x, _ = self.transform.forward(z)
-        return x
+        return self.decode(z)

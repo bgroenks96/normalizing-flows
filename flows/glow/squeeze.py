@@ -31,6 +31,7 @@ class Squeeze(Transform):
         factor = self.factor
         h, w, c = shape[1:]
         # pad to divisor
+        assert h is not None and w is not None, 'height and width must be known'
         x = tf.image.resize_with_crop_or_pad(x, h+self.padding_y, w+self.padding_x)
         shape = x.shape
         h, w, c = shape[1:]

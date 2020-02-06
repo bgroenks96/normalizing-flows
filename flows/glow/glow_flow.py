@@ -65,7 +65,7 @@ class GlowFlow(Transform):
     def _flatten_zs(self, zs):
         zs_reshaped = []
         for z in zs:
-            zs_reshaped.append(tf.reshape(z, (z.shape[0], -1)))
+            zs_reshaped.append(tf.reshape(z, (tf.shape(z)[0], -1)))
         return tf.concat(zs_reshaped, axis=-1)
     
     def _unflatten_z(self, z):
