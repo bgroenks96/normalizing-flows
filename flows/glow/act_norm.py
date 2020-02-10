@@ -4,8 +4,7 @@ import numpy as np
 from flows import Transform
 
 class ActNorm(Transform):
-    def __init__(self, input_shape=None, alpha=1.0E-5, name='actnorm',
-                 *args, **kwargs):    
+    def __init__(self, input_shape=None, alpha=0.1, name='actnorm', *args, **kwargs):    
         """
         Creates a new activation normalization (actnorm) transform.
         """
@@ -41,14 +40,14 @@ class ActNorm(Transform):
         self.init_from_data = False
 
     def _forward(self, x, **kwargs):
-        if 'ddi' in kwargs and kwargs['ddi']:
+        if 'init' in kwargs and kwargs['init']:
             self._init_from_data(x)
         y = tf.math.exp(self.log_s)*(x + self.b)
         fldj = tf.math.reduce_sum(self.log_s)*np.prod(y.shape[1:-1])
         return y, fldj*tf.ones(tf.shape(x)[:1])
         
     def _inverse(self, y, **kwargs):
-        if 'ddi' in kwargs and kwargs['ddi']:
+        if 'init' in kwargs and kwargs['init']:
             self._init_from_data(y)
         x = tf.math.exp(-self.log_s)*y - self.b
         ildj = -tf.math.reduce_sum(self.log_s)*np.prod(y.shape[1:-1])

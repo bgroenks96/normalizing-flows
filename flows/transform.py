@@ -33,6 +33,12 @@ class Transform(tf.Module):
         Subclass implementation of forward transform z' = f(z)
         """
         raise NotImplementedError('missing implementation of _forward')
+
+    def _inverse(self, z, *args, **kwargs):
+        """
+        Subclass implementation of inverse transform z = f^-1(z')
+        """
+        raise NotImplementedError('missing implementation of _inverse')
         
     def _forward_shape(self, shape: tf.TensorShape):
         """
@@ -45,12 +51,6 @@ class Transform(tf.Module):
         Permutes shape according to the inverse transform.
         """
         return shape
-
-    def _inverse(self, z, *args, **kwargs):
-        """
-        Subclass implementation of inverse transform z = f^-1(z')
-        """
-        raise NotImplementedError('missing implementation of _inverse')
         
     def _regularization_loss(self):
         """

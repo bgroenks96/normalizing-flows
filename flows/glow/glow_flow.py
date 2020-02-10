@@ -9,6 +9,7 @@ class GlowFlow(Transform):
                  input_shape=None,
                  num_layers=1,
                  depth_per_layer=4,
+                 cond_shape=None,
                  parameterize_ctor=Gaussianize,
                  coupling_nn_ctor=coupling_nn_glow(),
                  act_norm=True,
@@ -42,9 +43,21 @@ class GlowFlow(Transform):
                              name=f'{name}_layer{i}')
         self.num_layers = num_layers
         self.depth_per_layer = depth_per_layer
+        self.cond_shape = cond_shape
         self.layers = [_layer(i) for i in range(num_layers)]
         self.parameterize = parameterize_ctor()
         super().__init__(*args, input_shape=input_shape, name=name, **kwargs)
+        
+    def _build_cond_fn(self, cond_shape, z_shape):
+        from tensorflow.keras import Model
+        from tensorflow.keras.layers import Input, Dense, Reshape, Flatten, Conv2D, Concatenate
+        x_in = Input(z_shape[1:])
+        cond_in = Input(cond_shape)
+        y = Dense(tf.math.reduce_prod(z_shape[1:]), name=f'{self.name}_cond_dense')(Flatten()(cond_in))
+        y = Reshape(z_shape[1:])(y)
+        y = Concatenate(axis=-1)([x_in, y])
+        y = Conv2D(z_shape[-1], 3, padding='same')(y)
+        return Model(inputs=[x_in, cond_in], outputs=y)
         
     def _forward_shape(self, input_shape):
         for layer in self.layers:
@@ -61,6 +74,8 @@ class GlowFlow(Transform):
             layer.initialize(input_shape)
             input_shape = layer._forward_shape(input_shape)
         self.parameterize.initialize(input_shape)
+        if self.cond_shape is not None:
+            self.cond_fn = self._build_cond_fn(self.cond_shape, input_shape)
             
     def _flatten_zs(self, zs):
         zs_reshaped = []
@@ -84,6 +99,7 @@ class GlowFlow(Transform):
         return list(reversed(zs))
             
     def _forward(self, x, flatten_zs=True, **kwargs):
+        assert self.cond_shape is None or 'y_cond' in kwargs, 'y_cond must be supplied for conditional flow'
         zs = []
         x_i = x
         fldj = 0.0
@@ -95,7 +111,10 @@ class GlowFlow(Transform):
         x_i, fldj_i = self.layers[-1].forward(x_i)
         fldj += fldj_i
         # Gaussianize (parameterize) final x_i
-        z_i, fldj_i = self.parameterize.forward(tf.zeros_like(x_i), x_i)
+        h = tf.zeros_like(x_i)
+        if self.cond_shape is not None:
+            h = self.cond_fn([h, kwargs['y_cond']])
+        z_i, fldj_i = self.parameterize.forward(h, x_i)
         fldj += fldj_i
         zs.append(z_i)
         if flatten_zs:
@@ -104,11 +123,15 @@ class GlowFlow(Transform):
             return zs, fldj
             
     def _inverse(self, zs, flatten_zs=True, **kwargs):
+        assert self.cond_shape is None or 'y_cond' in kwargs, 'y_cond must be supplied for conditional flow'
         if flatten_zs:
             zs = self._unflatten_z(zs)
         assert len(zs) == self.num_layers, 'number of latent space inputs should match number of layers'
+        h = tf.zeros_like(zs[-1])
+        if self.cond_shape is not None:
+            h = self.cond_fn([h, kwargs['y_cond']])
         ildj = 0.0
-        x_i, ildj_i = self.parameterize.inverse(tf.zeros_like(zs[-1]), zs[-1])
+        x_i, ildj_i = self.parameterize.inverse(h, zs[-1])
         ildj += ildj_i
         x_i, ildj_i = self.layers[-1].inverse(x_i)
         ildj += ildj_i

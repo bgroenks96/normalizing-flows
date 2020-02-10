@@ -7,6 +7,29 @@ from tensorflow.keras import Model
 from tqdm import tqdm
 from typing import Callable
 
+def nll_loss(distribution_fn, num_bins=None):
+    """
+    Implementation of normalized NLL loss function.
+    
+    distribution_fn : a callable that takes a tf.Tensor and returns a valid
+                      TFP Distribution
+    num_bins        : number of discretization bins; None for continuous data
+    """
+    scale_factor = np.log2(num_bins) if num_bins is not None else 1.0
+    def nll(y_true, y_pred):
+        def _preprocess(self, x):
+            if num_bins is not None:
+                x += tf.random.uniform(x.shape, 0, 1./num_bins)
+            return x
+        def log_prob(dist: tfp.distributions.Distribution):
+            return dist.log_prob(y_true)
+        num_elements = tf.math.reduce_prod(tf.cast(tf.shape(y_true)[1:], dtype=y_true.dtype))
+        dist = tfp.layers.DistributionLambda(distribution_fn, log_prob)
+        log_probs = tf.math.reduce_sum(dist(y_pred), axis=[i for i in range(1, y_true.shape.rank)])
+        nll = -(log_probs - scale_factor*num_elements) / num_elements
+        return nll
+    return nll
+
 class VariationalModel(Model):
     """
     Extension of Keras Model for supervised, variational inference networks.
@@ -38,7 +61,7 @@ class VariationalModel(Model):
         assert 'loss' not in kwargs, 'NLL loss is automatically supplied by VariationalModel'
         self.optimizer = optimizer
         self.transform.initialize(output_shape)
-        #super().compile(loss=nll, target_tensors=K.placeholder(shape=output_shape, dtype=output_dtype), **kwargs)
+        super().compile(loss=nll, target_tensors=K.placeholder(shape=output_shape, dtype=output_dtype), **kwargs)
         
     @tf.function
     def eval_batch(self, x, y, **flow_kwargs):
@@ -130,7 +153,8 @@ class VariationalModel(Model):
         num_elements = tf.math.reduce_prod(tf.cast(tf.shape(y)[1:], dtype=y.dtype))
         dist = self.dist_fn(params)
         z, ildj = self.transform.inverse(y)
-        prior_log_probs = dist.log_prob(tf.reshape(z, tf.shape(y)))
+        z = tf.reshape(z, tf.shape(y))
+        prior_log_probs = dist.log_prob(z*params[:,:,:,1:] + params[:,:,:,:1])
         prior_log_probs = tf.math.reduce_sum(prior_log_probs, axis=[i for i in range(1, prior_log_probs.shape.rank)])
         log_probs = (prior_log_probs + ildj - self.scale_factor*num_elements) / num_elements
         return log_probs

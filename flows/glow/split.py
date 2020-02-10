@@ -36,14 +36,15 @@ class Split(Transform):
         return new_shape
         
     def _initialize(self, input_shape):
-        self.parameterize.initialize(self._forward_shape(input_shape))
+        split_shape = self._forward_shape(input_shape)
+        self.parameterize.initialize(split_shape)
         
     def _forward(self, x, **kwargs):
         x1, x2 = tf.split(x, 2, axis=self.split_axis)
-        z2, fldj = self.parameterize.forward(x1, x2)
+        z2, fldj = self.parameterize.forward(x1, x2, **kwargs)
         return (x1, z2), fldj
         
     def _inverse(self, x1, z2, **kwargs):
         x2, ildj = self.parameterize.inverse(x1, z2)
-        x = tf.concat((x1, x2), axis=self.split_axis)
+        x = tf.concat((x1, x2), axis=self.split_axis, **kwargs)
         return x, ildj

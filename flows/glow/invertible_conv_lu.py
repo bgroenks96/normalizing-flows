@@ -5,7 +5,7 @@ import scipy
 from flows import Transform
 
 class InvertibleConv(Transform):
-    def __init__(self, input_shape=None, alpha=1.0E-5, name='invertible_1x1_conv', *args, **kwargs):
+    def __init__(self, input_shape=None, alpha=1.0E-2, name='invertible_1x1_conv', *args, **kwargs):
         self.alpha = alpha
         self.init = False
         super().__init__(*args,

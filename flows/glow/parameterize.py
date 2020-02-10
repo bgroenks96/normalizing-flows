@@ -18,13 +18,13 @@ class Parameterize(Transform):
         self.parameterizer = None
         super().__init__(*args, input_shape=input_shape, requires_init=True, name=name, **kwargs)
         
-    def _build_parameterizer_fn(self, input_shape):
+    def _build_parameterizer_fn(self, z_shape):
         """
         Builds a simple, convolutional neural network for parameterizing a distribution
         with 'num_parameters' parameters. Can be overridden by subclasses.
         """
-        x = Input(input_shape[1:])
-        params = Conv2D(self.num_parameters*input_shape[-1], 3, padding='same', activation='linear')(x)
+        x = Input(z_shape[1:])
+        params = Conv2D(self.num_parameters*z_shape[-1], 3, padding='same', activation='linear')(x)
         return Model(inputs=x, outputs=params)
         
     def _initialize(self, input_shape):
@@ -45,14 +45,14 @@ class Gaussianize(Parameterize):
     def __init__(self, input_shape=None, name='gaussianize', *args, **kwargs):
         super().__init__(*args, num_parameters=2, input_shape=input_shape, name=name, **kwargs)
         
-    def _forward(self, x1, x2):
+    def _forward(self, x1, x2, **kwargs):
         params = self.parameterizer(x1)*tf.math.exp(self.log_scale)
         mus, log_sigmas = params[:,:,:,0::2], params[:,:,:,1::2]
         z2 = (x2 - mus)*tf.math.exp(-log_sigmas)
         fldj = -tf.math.reduce_sum(log_sigmas, axis=[1,2,3])
         return z2, fldj
     
-    def _inverse(self, x1, z2):
+    def _inverse(self, x1, z2, **kwargs):
         params = self.parameterizer(x1)*tf.math.exp(self.log_scale)
         mus, log_sigmas = params[:,:,:,0::2], params[:,:,:,1::2]
         x2 = tf.math.exp(log_sigmas)*z2 + mus

@@ -2,7 +2,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 from flows import Transform
 
-def coupling_nn_glow(hidden_dims=512, kernel_size=3, alpha=1.0E-5, epsilon=1.0E-6):
+def coupling_nn_glow(hidden_dims=512, kernel_size=3, alpha=1.0E-5, epsilon=1.0E-4):
     from tensorflow.keras import Model
     from tensorflow.keras.layers import Input, Conv2D, BatchNormalization, Activation, Lambda
     from tensorflow.keras.regularizers import l2
