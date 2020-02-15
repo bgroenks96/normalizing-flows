@@ -2,8 +2,9 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
 import collections
+import utils
 from flows import Transform
-from models import adversarial, utils
+from models import adversarial
 from tqdm import tqdm
 
 class JointFlowLVM(tf.Module):
@@ -75,11 +76,11 @@ class JointFlowLVM(tf.Module):
         dy_pred_real = self.D_y(y)
         dy_pred_gen = self.D_y(y_x)
         # compute discriminator losses
-        dx_loss = adversarial.loss(dx_pred_real, dx_pred_gen)
-        dy_loss = adversarial.loss(dy_pred_real, dy_pred_gen)
+        dx_loss = adversarial.bce_loss(dx_pred_real, dx_pred_gen)
+        dy_loss = adversarial.bce_loss(dy_pred_real, dy_pred_gen)
         # compute generator adversarial losses (flip labels)
-        gx_loss = adversarial.loss(dx_pred_gen, dx_pred_real)
-        gy_loss = adversarial.loss(dy_pred_gen, dy_pred_real)
+        gx_loss = adversarial.bce_loss(dx_pred_gen, dx_pred_real)
+        gy_loss = adversarial.bce_loss(dy_pred_gen, dy_pred_real)
         # compute likelihood losses
         prior_logp_x = self.prior.log_prob(z_x)
         prior_logp_y = self.prior.log_prob(z_y)

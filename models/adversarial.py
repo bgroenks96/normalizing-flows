@@ -4,9 +4,17 @@ from tensorflow.keras.losses import binary_crossentropy
 from tensorflow.keras.layers import Input, Conv2D, LeakyReLU, Activation
 from layers import InstanceNormalization
 
-def loss(pred_real, pred_fake):
+def wasserstein_loss(D, x, x_gen, grad_lam):
+    pass
+
+def bce_loss(pred_real, pred_fake):
+    """
+    Implementation of traditional GAN discriminator loss with soft/noisy labels.
+    """
     target_real = tf.ones_like(pred_real)
+    target_real -= tf.random.normal(tf.shape(target_real), mean=0.1, stddev=0.02)
     target_fake = tf.zeros_like(pred_fake)
+    target_fake += tf.random.normal(tf.shape(target_fake), mean=0.1, stddev=0.02)
     loss_real = binary_crossentropy(target_real, pred_real)
     loss_fake = binary_crossentropy(target_fake, pred_fake)
     loss = (loss_real + loss_fake)*0.5

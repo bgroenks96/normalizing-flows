@@ -2,6 +2,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
 from flows import Transform
+from utils import var
 
 @tf.function
 def act_norm(x, log_s, b, inverse=tf.constant(False)):
@@ -54,12 +55,12 @@ class ActNorm(Transform):
     def _forward(self, x, **kwargs):
         if 'init' in kwargs and kwargs['init']:
             self._init_from_data(x)
-        return act_norm(x, self.log_s, self.b)
+        return act_norm(x, var(self.log_s), var(self.b))
         
     def _inverse(self, y, **kwargs):
         if 'init' in kwargs and kwargs['init']:
             self._init_from_data(y)
-        return act_norm(y, self.log_s, self.b, inverse=tf.constant(True))
+        return act_norm(y, var(self.log_s), var(self.b), inverse=tf.constant(True))
     
     def _regularization_loss(self):
         return self.alpha*tf.math.reduce_sum(self.log_s**2)

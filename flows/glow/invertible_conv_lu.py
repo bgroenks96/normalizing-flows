@@ -3,6 +3,7 @@ import tensorflow_probability as tfp
 import numpy as np
 import scipy
 from flows import Transform
+from utils import var
 
 @tf.function
 def compute_w(c, L, U, P, log_d, sgn_d, inverse=tf.constant(False)):
@@ -64,10 +65,10 @@ class InvertibleConv(Transform):
             self.init = True
     
     def _forward(self, x, **kwargs):
-        return invertible_1x1_conv(x, self.L, self.U, self.P, self.log_d, self.sgn_d)
+        return invertible_1x1_conv(x, var(self.L), var(self.U), var(self.P), var(self.log_d), var(self.sgn_d))
     
     def _inverse(self, y, **kwargs):
-        return invertible_1x1_conv(y, self.L, self.U, self.P, self.log_d, self.sgn_d, inverse=tf.constant(True))
+        return invertible_1x1_conv(y, var(self.L), var(self.U), var(self.P), var(self.log_d), var(self.sgn_d), inverse=tf.constant(True))
     
     def _regularization_loss(self):
         return self.alpha*tf.math.reduce_sum(self.log_d**2)
