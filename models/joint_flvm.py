@@ -3,7 +3,7 @@ import tensorflow_probability as tfp
 import numpy as np
 import collections
 from flows import Transform
-from models import adversarial
+from models import adversarial, utils
 from tqdm import tqdm
 
 class JointFlowLVM(tf.Module):
@@ -70,16 +70,16 @@ class JointFlowLVM(tf.Module):
         z_y, ildj_y = self.G_zy.inverse(y)
         x_y, _ = self.G_zx.forward(z_y)
         # compute discriminator predictions
-        #dx_pred_real = self.D_x(x)
-        #dx_pred_gen = self.D_x(x_y)
-        #dy_pred_real = self.D_y(y)
-        #dy_pred_gen = self.D_y(y_x)
+        dx_pred_real = self.D_x(x)
+        dx_pred_gen = self.D_x(x_y)
+        dy_pred_real = self.D_y(y)
+        dy_pred_gen = self.D_y(y_x)
         # compute discriminator losses
-        dx_loss = 0.0#adversarial.loss(dx_pred_real, dx_pred_gen)
-        dy_loss = 0.0#adversarial.loss(dy_pred_real, dy_pred_gen)
+        dx_loss = adversarial.loss(dx_pred_real, dx_pred_gen)
+        dy_loss = adversarial.loss(dy_pred_real, dy_pred_gen)
         # compute generator adversarial losses (flip labels)
-        gx_loss = 0.0#adversarial.loss(dx_pred_gen, dx_pred_real)
-        gy_loss = 0.0#adversarial.loss(dy_pred_gen, dy_pred_real)
+        gx_loss = adversarial.loss(dx_pred_gen, dx_pred_real)
+        gy_loss = adversarial.loss(dy_pred_gen, dy_pred_real)
         # compute likelihood losses
         prior_logp_x = self.prior.log_prob(z_x)
         prior_logp_y = self.prior.log_prob(z_y)
@@ -92,58 +92,60 @@ class JointFlowLVM(tf.Module):
         return nll_x, nll_y, gx_loss, gy_loss, dx_loss, dy_loss
         
     @tf.function
-    def train_batch(self, x, y, lam=0.1, **flow_kwargs):
+    def train_batch(self, x, y, lam=1.0, **flow_kwargs):
         assert self.input_shape is not None, 'model not initialized'
         nll_x, nll_y, gx_loss, gy_loss, dx_loss, dy_loss = self.eval_batch(x, y, **flow_kwargs)
         # compute losses
         reg_losses = [self.G_zx._regularization_loss()]
         reg_losses += [self.G_zy._regularization_loss()]
         g_obj = gx_loss + gy_loss + lam*nll_x + lam*nll_y + tf.math.add_n(reg_losses)
+        g_obj = tf.math.reduce_mean(g_obj)
         # discriminator gradient update
-        #dx_grads = tf.gradients(dx_loss, self.D_x.trainable_variables)
-        #dy_grads = tf.gradients(dy_loss, self.D_y.trainable_variables)
-        #self.optimizer_dx.apply_gradients(zip(dx_grads, self.D_x.trainable_variables))
-        #self.optimizer_dy.apply_gradients(zip(dy_grads, self.D_y.trainable_variables))
+        dx_loss = tf.math.reduce_mean(dx_loss)
+        dy_loss = tf.math.reduce_mean(dy_loss)
+        dx_grads = tf.gradients(dx_loss, self.D_x.trainable_variables)
+        dy_grads = tf.gradients(dy_loss, self.D_y.trainable_variables)
+        self.optimizer_dx.apply_gradients(zip(dx_grads, self.D_x.trainable_variables))
+        self.optimizer_dy.apply_gradients(zip(dy_grads, self.D_y.trainable_variables))
         # generator gradient update
-        #generator_variables = list(self.G_zx.trainable_variables) + list(self.G_zy.trainable_variables)
-        #g_grads = tf.gradients(g_obj, generator_variables)
-        #if self.clip_grads:
-        #    g_grads, grad_norm = tf.clip_by_global_norm(g_grads, self.clip_grads)
-        #self.optimizer_g.apply_gradients(zip(g_grads, generator_variables))
+        generator_variables = list(self.G_zx.trainable_variables) + list(self.G_zy.trainable_variables)
+        g_grads = tf.gradients(g_obj, generator_variables)
+        if self.clip_grads:
+            g_grads, grad_norm = tf.clip_by_global_norm(g_grads, self.clip_grads)
+        self.optimizer_g.apply_gradients(zip(g_grads, generator_variables))
+        nll_x = tf.math.reduce_mean(nll_x)
+        nll_y = tf.math.reduce_mean(nll_y)
         return g_obj, dx_loss, dy_loss, nll_x, nll_y
     
     def train(self, train_data: tf.data.Dataset, steps_per_epoch, num_epochs=1, **flow_kwargs):
         train_data = train_data.take(steps_per_epoch).repeat(num_epochs)
         with tqdm(total=steps_per_epoch*num_epochs) as prog:
-            hist = collections.deque(maxlen=steps_per_epoch)
+            hist = dict()
             init = tf.constant(True) # init variable for data-dependent initialization
             for epoch in range(num_epochs):
                 for x,y in train_data.take(steps_per_epoch):
                     g_obj, dx_loss, dy_loss, nll_x, nll_y  = self.train_batch(x, y, **flow_kwargs)
                     init=tf.constant(False)
-                    hist.append((g_obj, dx_loss, dy_loss, nll_x, nll_y))
+                    utils.update_metrics(hist, g_obj=g_obj.numpy(), dx_loss=dx_loss.numpy(), dy_loss=dy_loss.numpy(),
+                                         nll_x=nll_x.numpy(), nll_y=nll_y.numpy())
                     prog.update(1)
-                    prog.set_postfix({'epoch': epoch+1,
-                                      'gen_obj': np.mean([record[0] for record in hist]),
-                                      'dx_loss': np.mean([record[1] for record in hist]),
-                                      'dy_loss': np.mean([record[2] for record in hist]),
-                                      'nll_x': np.mean([record[3] for record in hist]),
-                                      'nll_y': np.mean([record[4] for record in hist])})
+                    prog.set_postfix({k: v[0] for k,v in hist.items()})
                     
     def evaluate(self, validation_data: tf.data.Dataset, validation_steps, **flow_kwargs):
         validation_data = validation_data.take(validation_steps)
         with tqdm(total=validation_steps) as prog:
-            hist = collections.deque(maxlen=validation_steps)
+            hist = dict()
             for x,y in validation_data:
-                _,_, nll_x, nll_y, gx_loss, gy_loss, dx_loss, dy_loss  = self.eval_batch(x, y, **flow_kwargs)
-                hist.append((gx_loss, gy_loss, dx_loss, dy_loss, nll_x, nll_y))
+                nll_x, nll_y, gx_loss, gy_loss, dx_loss, dy_loss  = self.eval_batch(x, y, **flow_kwargs)
+                utils.update_metrics(hist,
+                                     nll_x=tf.math.reduce_mean(nll_x).numpy(),
+                                     nll_y=tf.math.reduce_mean(nll_y).numpy(),
+                                     gx_loss=tf.math.reduce_mean(gx_loss).numpy(),
+                                     gy_loss=tf.math.reduce_mean(gy_loss).numpy(),
+                                     dx_loss=tf.math.reduce_mean(dx_loss).numpy(),
+                                     dy_loss=tf.math.reduce_mean(dy_loss).numpy())
                 prog.update(1)
-                prog.set_postfix({'gx_loss': np.mean([record[0] for record in hist]),
-                                  'gy_loss': np.mean([record[1] for record in hist]),
-                                  'dx_loss': np.mean([record[2] for record in hist]),
-                                  'dy_loss': np.mean([record[3] for record in hist]),
-                                  'nll_x': np.mean([record[4] for record in hist]),
-                                  'nll_y': np.mean([record[5] for record in hist])})
+                prog.set_postfix({k: v[0] for k,v in hist.items()})
                 
     def encode_x(self, x):
         z, _ = self.G_zx.inverse(x)

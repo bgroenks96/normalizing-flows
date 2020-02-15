@@ -1,8 +1,42 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
-from flows import Flow, Transform, Invert
-from . import Gaussianize, Squeeze, GlowLayer, coupling_nn_glow
+from flows import Flow, Transform
+from flows.affine import BatchNorm
+from flows.glow import (
+    InvertibleConv,
+    ActNorm,
+    Squeeze,
+    Split,
+    AffineCoupling,
+    Parameterize,
+    Gaussianize,
+    coupling_nn_glow
+)
+
+def glow_step(layer_index, coupling_nn_ctor=coupling_nn_glow(), act_norm=True, name='glow_step'):
+    norm = ActNorm(name=f'{name}_act_norm') if act_norm else BatchNorm(name=f'{name}_batch_norm')
+    invertible_conv = InvertibleConv(name=f'{name}_inv_conv')
+    affine_coupling = AffineCoupling(layer_index, nn_ctor=coupling_nn_ctor, name=f'{name}_affine_coupling')
+    flow_steps = [norm, invertible_conv, affine_coupling]
+    return Flow(flow_steps)
+
+def glow_layer(layer_index,
+               parameterize: Parameterize,
+               depth=4,
+               coupling_nn_ctor=coupling_nn_glow(),
+               split_axis=-1,
+               act_norm=True,
+               name='glow_layer'):
+    squeeze = Squeeze(name=f'{name}_squeeze')
+    steps = Flow.uniform(depth, lambda i: glow_step(layer_index,
+                                                    coupling_nn_ctor=coupling_nn_ctor,
+                                                    act_norm=act_norm,
+                                                    name=f'{name}_step{i}'))
+    layer_steps = [squeeze, steps]
+    if split_axis is not None:
+        layer_steps.append(Split(parameterize, split_axis=split_axis, name=f'{name}_split'))
+    return Flow(layer_steps)
 
 class GlowFlow(Transform):
     def __init__(self,
@@ -36,12 +70,13 @@ class GlowFlow(Transform):
         def _layer(i):
             """Builds layer i; omits split op for final layer"""
             assert i < num_layers, f'expected i < {num_layers}; got {i}'
-            return GlowLayer(parameterize_ctor(name=f'{name}_layer{i}_param'),
-                             depth=depth_per_layer,
-                             coupling_nn_ctor=coupling_nn_ctor,
-                             act_norm=act_norm,
-                             split_axis=None if i == num_layers - 1 else -1,
-                             name=f'{name}_layer{i}')
+            return glow_layer(i,
+                              parameterize_ctor(name=f'{name}_layer{i}_param'),
+                              depth=depth_per_layer,
+                              coupling_nn_ctor=coupling_nn_ctor,
+                              act_norm=act_norm,
+                              split_axis=None if i == num_layers - 1 else -1,
+                              name=f'{name}_layer{i}')
         self.num_layers = num_layers
         self.depth_per_layer = depth_per_layer
         self.cond_shape = cond_shape
@@ -91,13 +126,14 @@ class GlowFlow(Transform):
         st = np.prod(output_shape[1:])
         z_k = tf.reshape(z[:,-st:], (batch_size, *output_shape[1:]))
         zs = [z_k]
-        for i, layer_i in enumerate(reversed(self.layers[1:])):
+        for i in range(self.num_layers-1):
+            layer_i = self.layers[self.num_layers-i-1]
             output_shape = layer_i._inverse_shape(output_shape)
             size_i = np.prod(output_shape[1:])
             z_i = z[:,-st-size_i:-st]
-            zs.append(tf.reshape(z_i, (batch_size, *output_shape[1:])))
+            zs.insert(0, tf.reshape(z_i, (batch_size, *output_shape[1:])))
             st += size_i
-        return list(reversed(zs))
+        return zs
             
     def _forward(self, x, flatten_zs=True, **kwargs):
         assert self.cond_shape is None or 'y_cond' in kwargs, 'y_cond must be supplied for conditional flow'

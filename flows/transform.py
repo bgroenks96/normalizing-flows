@@ -64,7 +64,6 @@ class Transform(tf.Module):
         """
         return 0
         
-    @tf.function
     def forward(self, z, *args, **kwargs):
         """
         Computes the forward transform z' = f(z)
@@ -73,7 +72,6 @@ class Transform(tf.Module):
         assert not self.requires_init or self.input_shape is not None, 'not initialized'
         return self._forward(z, *args, **kwargs)
         
-    @tf.function
     def inverse(self, z, *args, **kwargs):
         """
         Computes the inverse transform z = f^-1(z')
@@ -82,7 +80,6 @@ class Transform(tf.Module):
         assert not self.requires_init or self.input_shape is not None, 'not initialized'
         return self._inverse(z, *args, **kwargs)
         
-    @tf.function
     def regularization_loss(self):
         """
         Returns the regularization loss for this transform.

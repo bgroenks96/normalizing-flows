@@ -3,6 +3,18 @@ import tensorflow_probability as tfp
 import numpy as np
 from flows import Transform
 
+@tf.function
+def act_norm(x, log_s, b, inverse=tf.constant(False)):
+    shape = tf.shape(x)
+    hw = tf.cast(tf.math.reduce_prod(shape[1:-1]), tf.float32)
+    ldj = tf.math.reduce_sum(log_s)*tf.ones(shape[:1])*hw
+    if inverse:
+        y = tf.math.exp(-log_s)*x - b
+        ldj = -ldj
+    else:
+        y = tf.math.exp(log_s)*(x + b)
+    return y, ldj
+    
 class ActNorm(Transform):
     def __init__(self, input_shape=None, alpha=1.0E-4, name='actnorm', *args, **kwargs):    
         """
@@ -42,16 +54,12 @@ class ActNorm(Transform):
     def _forward(self, x, **kwargs):
         if 'init' in kwargs and kwargs['init']:
             self._init_from_data(x)
-        y = tf.math.exp(self.log_s)*(x + self.b)
-        fldj = tf.math.reduce_sum(self.log_s)*np.prod(y.shape[1:-1])
-        return y, fldj*tf.ones(tf.shape(x)[:1])
+        return act_norm(x, self.log_s, self.b)
         
     def _inverse(self, y, **kwargs):
         if 'init' in kwargs and kwargs['init']:
             self._init_from_data(y)
-        x = tf.math.exp(-self.log_s)*y - self.b
-        ildj = -tf.math.reduce_sum(self.log_s)*np.prod(y.shape[1:-1])
-        return x, ildj*tf.ones(tf.shape(y)[:1])
+        return act_norm(y, self.log_s, self.b, inverse=tf.constant(True))
     
     def _regularization_loss(self):
         return self.alpha*tf.math.reduce_sum(self.log_s**2)

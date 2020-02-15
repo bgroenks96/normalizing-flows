@@ -25,7 +25,7 @@ class Parameterize(Transform):
         """
         x = Input(z_shape[1:])
         h = Conv2D(self.num_parameters*z_shape[-1], 3, padding='same', activation='linear', kernel_initializer='zeros')(x)
-        params = Conv2D(self.num_parameters*z_shape[-1], 1, activation='linear', kernel_initializer='ones')(h)
+        params = Conv2D(self.num_parameters*z_shape[-1], 1, activation='linear', kernel_initializer='zeros')(h)
         return Model(inputs=x, outputs=params)
         
     def _initialize(self, input_shape):
