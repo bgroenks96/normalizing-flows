@@ -36,7 +36,8 @@ class GlowFlow(Transform):
         def _layer(i):
             """Builds layer i; omits split op for final layer"""
             assert i < num_layers, f'expected i < {num_layers}; got {i}'
-            return GlowLayer(parameterize_ctor(), depth=depth_per_layer,
+            return GlowLayer(parameterize_ctor(name=f'{name}_layer{i}_param'),
+                             depth=depth_per_layer,
                              coupling_nn_ctor=coupling_nn_ctor,
                              act_norm=act_norm,
                              split_axis=None if i == num_layers - 1 else -1,
@@ -103,7 +104,8 @@ class GlowFlow(Transform):
         zs = []
         x_i = x
         fldj = 0.0
-        for i, layer in enumerate(self.layers[:-1]):
+        for i in range(self.num_layers-1):
+            layer = self.layers[i]
             (x_i, z_i), fldj_i = layer.forward(x_i)
             fldj += fldj_i
             zs.append(z_i)
@@ -135,7 +137,8 @@ class GlowFlow(Transform):
         ildj += ildj_i
         x_i, ildj_i = self.layers[-1].inverse(x_i)
         ildj += ildj_i
-        for i, layer in enumerate(reversed(self.layers[:-1])):
+        for i in range(self.num_layers-1):
+            layer = self.layers[self.num_layers-i-2]
             x_i, ildj_i = layer.inverse(x_i, zs[-i-2])
             ildj += ildj_i
         return x_i, ildj

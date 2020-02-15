@@ -4,7 +4,7 @@ import numpy as np
 from flows import Transform
 
 class ActNorm(Transform):
-    def __init__(self, input_shape=None, alpha=0.1, name='actnorm', *args, **kwargs):    
+    def __init__(self, input_shape=None, alpha=1.0E-4, name='actnorm', *args, **kwargs):    
         """
         Creates a new activation normalization (actnorm) transform.
         """

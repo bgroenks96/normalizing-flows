@@ -24,12 +24,13 @@ class Parameterize(Transform):
         with 'num_parameters' parameters. Can be overridden by subclasses.
         """
         x = Input(z_shape[1:])
-        params = Conv2D(self.num_parameters*z_shape[-1], 3, padding='same', activation='linear')(x)
+        h = Conv2D(self.num_parameters*z_shape[-1], 3, padding='same', activation='linear', kernel_initializer='zeros')(x)
+        params = Conv2D(self.num_parameters*z_shape[-1], 1, activation='linear', kernel_initializer='ones')(h)
         return Model(inputs=x, outputs=params)
         
     def _initialize(self, input_shape):
         if self.parameterizer is None:
-            self.log_scale = tf.Variable(tf.zeros((1,1,1,self.num_parameters*input_shape[-1])))
+            #self.log_scale = tf.Variable(tf.zeros((1,1,1,self.num_parameters*input_shape[-1])), name=f'{self.name}/log_scale')
             self.parameterizer = self._build_parameterizer_fn(input_shape)
             
     def _forward(self, x1, x2, **kwargs):
@@ -46,14 +47,14 @@ class Gaussianize(Parameterize):
         super().__init__(*args, num_parameters=2, input_shape=input_shape, name=name, **kwargs)
         
     def _forward(self, x1, x2, **kwargs):
-        params = self.parameterizer(x1)*tf.math.exp(self.log_scale)
+        params = self.parameterizer(x1)#*tf.math.exp(self.log_scale)
         mus, log_sigmas = params[:,:,:,0::2], params[:,:,:,1::2]
         z2 = (x2 - mus)*tf.math.exp(-log_sigmas)
         fldj = -tf.math.reduce_sum(log_sigmas, axis=[1,2,3])
         return z2, fldj
     
     def _inverse(self, x1, z2, **kwargs):
-        params = self.parameterizer(x1)*tf.math.exp(self.log_scale)
+        params = self.parameterizer(x1)#*tf.math.exp(self.log_scale)
         mus, log_sigmas = params[:,:,:,0::2], params[:,:,:,1::2]
         x2 = tf.math.exp(log_sigmas)*z2 + mus
         ildj = tf.math.reduce_sum(log_sigmas, axis=[1,2,3])

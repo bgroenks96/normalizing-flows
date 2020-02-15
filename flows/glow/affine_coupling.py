@@ -2,23 +2,30 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 from flows import Transform
 
-def coupling_nn_glow(hidden_dims=512, kernel_size=3, alpha=1.0E-5, epsilon=1.0E-4):
+def coupling_nn_glow(hidden_dims=512, kernel_size=3, num_blocks=1, alpha=1.0E-5, epsilon=1.0E-4):
     from tensorflow.keras import Model
-    from tensorflow.keras.layers import Input, Conv2D, BatchNormalization, Activation, Lambda
+    from tensorflow.keras.layers import Input, Conv2D, BatchNormalization, Activation, Lambda, add
     from tensorflow.keras.regularizers import l2
     from layers import ActNorm
+    def _resnet_block(x):
+        h = Conv2D(hidden_dims, kernel_size, padding='same', kernel_regularizer=l2(alpha))(x)
+        h = ActNorm()(h)
+        h = Activation('relu')(h)
+        h = Conv2D(hidden_dims, kernel_size, padding='same', kernel_regularizer=l2(alpha))(h)
+        h = ActNorm()(h)
+        h = add([x, h])
+        h = Activation('relu')(h)
+        return h
     def f(c, log_scale: tf.Variable):
         x = Input((None,None,c//2))
-        h_1 = Conv2D(hidden_dims, kernel_size, padding='same', kernel_regularizer=l2(alpha))(x)
-        h_1 = ActNorm()(h_1)
-        h_1 = Activation('relu')(h_1)
-        h_2 = Conv2D(hidden_dims, 1, padding='same', kernel_regularizer=l2(alpha))(h_1)
-        h_2 = ActNorm()(h_2)
-        h_2 = Activation('relu')(h_2)
-        s = Conv2D(c//2, kernel_size, padding='same', kernel_regularizer=l2(alpha), kernel_initializer='zeros')(h_2)
+        h = Conv2D(hidden_dims, kernel_size, padding='same', kernel_regularizer=l2(alpha))(x)
+        h = Activation('relu')(h)
+        for i in range(num_blocks):
+            h = _resnet_block(h)
+        s = Conv2D(c//2, kernel_size, padding='same', kernel_regularizer=l2(alpha), kernel_initializer='zeros')(h)
         s = Lambda(lambda x: x*tf.math.exp(log_scale))(s)
-        s = Activation(lambda x: tf.nn.sigmoid(x+2.0)+epsilon)(s)
-        t = Conv2D(c//2, kernel_size, padding='same', kernel_initializer='zeros')(h_2)
+        s = Activation(lambda x: tf.nn.sigmoid(x)+0.1)(s)
+        t = Conv2D(c//2, kernel_size, padding='same', kernel_initializer='zeros')(h)
         model = Model(inputs=x, outputs=[s, t])
         return model
     return f
