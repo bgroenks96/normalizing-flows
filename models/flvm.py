@@ -37,7 +37,7 @@ class FlowLVM(tf.Module):
         self.cond_fn = cond_fn
         self.optimizer = optimizer
         self.clip_grads = clip_grads
-        self.scale_factor = np.log2(num_bins) if num_bins is not None else 1.0
+        self.scale_factor = np.log2(num_bins) if num_bins is not None else 0.0
         self.input_shape = input_shape
         if self.input_shape is not None:
             self.initialize(self.input_shape)
@@ -68,14 +68,14 @@ class FlowLVM(tf.Module):
         if self.cond_fn is not None and 'y_cond' in flow_kwargs:
             y_loss = self.eval_cond(z, flow_kwargs['y_cond'])
         prior_log_probs = self.prior.log_prob(z)
-        if z.shape.rank > 1:
+        if prior_log_probs.shape.rank > 1:
             # reduce log probs along non-batch dimensions
             prior_log_probs = tf.math.reduce_sum(prior_log_probs, axis=[i for i in range(1,z.shape.rank)])
         log_probs = prior_log_probs + ldj
         nll = -(log_probs - self.scale_factor*num_elements) / num_elements
         return tf.math.reduce_mean(nll), \
-               -tf.math.reduce_mean(prior_log_probs) / num_elements, \
-               tf.math.reduce_mean(ldj) / num_elements, \
+               -tf.math.reduce_mean(prior_log_probs / num_elements), \
+               tf.math.reduce_mean(ldj / num_elements), \
                y_loss
         
     @tf.function
@@ -93,7 +93,7 @@ class FlowLVM(tf.Module):
         nll, prior_nll, ldj, y_loss = self.eval_batch(x, **flow_kwargs)
         reg_loss = self.transform._regularization_loss()
         objective = nll + reg_loss + y_loss
-        gradients = self.optimizer.get_gradients(objective, self.trainable_variables)
+        gradients = tf.gradients(objective, self.trainable_variables)
         if self.clip_grads:
             gradients, grad_norm = tf.clip_by_global_norm(gradients, self.clip_grads)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
@@ -112,7 +112,7 @@ class FlowLVM(tf.Module):
                     else:
                         x = batch
                         loss, nll, prior, ldj  = self.train_batch(x, init=init, **flow_kwargs)
-                    init=False
+                    init=tf.constant(False)
                     hist.append((loss, nll, prior))
                     prog.update(1)
                     prog.set_postfix({'epoch': epoch+1,

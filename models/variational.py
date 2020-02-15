@@ -137,6 +137,7 @@ class VariationalModel(Model):
             z = sample_fn(dist)
         else:
             z = dist.sample()
+        z = (z - params[:,:,:,:1]) / (1.0E-6 + tf.math.exp(params[:,:,:,1:]))
         y, _ = self.transform.forward(tf.reshape(z, (tf.shape(z)[0], -1)))
         return y
         
@@ -154,7 +155,7 @@ class VariationalModel(Model):
         dist = self.dist_fn(params)
         z, ildj = self.transform.inverse(y)
         z = tf.reshape(z, tf.shape(y))
-        prior_log_probs = dist.log_prob(z*params[:,:,:,1:] + params[:,:,:,:1])
+        prior_log_probs = dist.log_prob(z*(1.0E-6+tf.math.exp(params[:,:,:,1:])) + params[:,:,:,:1])
         prior_log_probs = tf.math.reduce_sum(prior_log_probs, axis=[i for i in range(1, prior_log_probs.shape.rank)])
         log_probs = (prior_log_probs + ildj - self.scale_factor*num_elements) / num_elements
         return log_probs
