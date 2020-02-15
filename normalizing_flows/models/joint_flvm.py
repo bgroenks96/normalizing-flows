@@ -2,7 +2,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
 import collections
-import utils
+import normalizing_flows.utils as utils
 from normalizing_flows.flows import Transform
 from tqdm import tqdm
 from . import adversarial
