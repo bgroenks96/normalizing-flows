@@ -1,3 +1,4 @@
 from .flow_layer import AmortizedFlowLayer
 from .gated_conv import GatedConv2D, GatedConv2DTranspose
 from .act_norm import ActNorm
+from .instance_normalization import InstanceNormalization
