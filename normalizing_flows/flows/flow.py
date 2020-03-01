@@ -58,15 +58,15 @@ class Flow(Transform):
         z_0    : (batch_size, d)
         params : optional sequence of tensors (batch_size, m_i) where m_i is the number of parameters for flow step i
         """
-        z_i = z_0
+        zs = [z_0]
         ldj = 0.0
         for i in range(self.num_steps):
             step = self.steps[i]
             params_i = [params[i]] if len(params) > i else []
-            z_i, ldj_i = step.forward(z_i, *params_i, **kwargs)
+            z_i, ldj_i = step.forward(zs[-1], *params_i, **kwargs)
+            zs.append(z_i)
             ldj += ldj_i
-        return z_i, ldj
-        #return (zs, ldj) if return_sequence else (zs[-1], ldj)
+        return (zs, ldj) if return_sequence else (zs[-1], ldj)
     
     def _inverse(self, z, *params: tf.Tensor, return_sequence=False, **kwargs):
         """
@@ -76,16 +76,16 @@ class Flow(Transform):
         z_0    : (batch_size, d)
         params : optional sequence of tensors (batch_size, m_i) where m_i is the number of parameters for flow step i
         """
-        z_i = z
+        zs = [z]
         ldj = 0.0
         for i in range(self.num_steps):
             step = self.steps[self.num_steps-i-1]
             params_i = [params[i]] if len(params) > i else []
-            z_i, ldj_i = step.inverse(z_i, *params_i, **kwargs)
-            tf.debugging.assert_all_finite(z_i, f'{step.name} output nan/inf values')
+            z_i, ldj_i = step.inverse(zs[-1], *params_i, **kwargs)
+            tf.debugging.assert_all_finite(z_i, f'{step.name} output nan/inf values for input {zs[-1]}')
+            zs.append(z_i)
             ldj += ldj_i
-        return z_i, ldj
-        #return (zs, ldj) if return_sequence else (zs[-1], ldj)
+        return (zs, ldj) if return_sequence else (zs[-1], ldj)
     
     def _regularization_loss(self):
         return tf.math.add_n([t.regularization_loss() for t in self.steps])

@@ -1,11 +1,12 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
-import collections
 import normalizing_flows.flows as flows
+import normalizing_flows.utils as utils
 from tqdm import tqdm
+from .trackable_module import TrackableModule
 
-class FlowLVM(tf.Module):
+class FlowLVM(TrackableModule):
     """
     Flow-based Latent Variable Model; attempts to learn a variational approximation
     for the joint distribution p(x,z) by minimizing the log likelihood of F^-1(x)
@@ -30,7 +31,7 @@ class FlowLVM(tf.Module):
         clip_grads    : If not None and > 0, the gradient clipping ratio for clip_by_global_norm;
                         otherwise, no gradient clipping is applied
         """
-        super().__init__(name=name)
+        super().__init__({'optimizer': optimizer}, name=name)
         self.prior = prior
         self.transform = transform
         self.num_bins = num_bins
@@ -102,7 +103,7 @@ class FlowLVM(tf.Module):
     def train(self, train_data: tf.data.Dataset, steps_per_epoch, num_epochs=1, conditional=False, **flow_kwargs):
         train_data = train_data.take(steps_per_epoch).repeat(num_epochs)
         with tqdm(total=steps_per_epoch*num_epochs) as prog:
-            hist = collections.deque(maxlen=steps_per_epoch)
+            hist = dict()
             init = tf.constant(True) # init variable for data-dependent initialization
             for epoch in range(num_epochs):
                 for batch in train_data.take(steps_per_epoch):
@@ -113,17 +114,14 @@ class FlowLVM(tf.Module):
                         x = batch
                         loss, nll, prior, ldj  = self.train_batch(x, init=init, **flow_kwargs)
                     init=tf.constant(False)
-                    hist.append((loss, nll, prior))
+                    utils.update_metrics(hist, loss=loss.numpy(), nll=nll.numpy(), prior=prior.numpy())
                     prog.update(1)
-                    prog.set_postfix({'epoch': epoch+1,
-                                      'loss': np.mean([record[0] for record in hist]),
-                                      'nll': np.mean([record[1] for record in hist]),
-                                      'prior': np.mean([record[2] for record in hist])})
+                    prog.set_postfix({k: v[0] for k,v in hist.items()})
                     
     def evaluate(self, validation_data: tf.data.Dataset, validation_steps, conditional=False, **flow_kwargs):
         validation_data = validation_data.take(validation_steps)
         with tqdm(total=validation_steps) as prog:
-            hist = collections.deque(maxlen=validation_steps)
+            hist = dict()
             for batch in validation_data:
                 if conditional:
                     x, y = batch
@@ -131,11 +129,9 @@ class FlowLVM(tf.Module):
                 else:
                     x = batch
                     nll, prior, ldj, y_loss  = self.eval_batch(x, **flow_kwargs)
-                hist.append((nll, prior, y_loss))
+                utils.update_metrics(hist, nll=nll.numpy(), prior=prior.numpy())
                 prog.update(1)
-                prog.set_postfix({'nll': np.mean([record[0] for record in hist]),
-                                  'prior': np.mean([record[1] for record in hist]),
-                                  'y_loss': np.mean([record[2] for record in hist])})
+                prog.set_postfix({k: v[0] for k,v in hist.items()})
                 
     def encode(self, x, y_cond=None):
         if y_cond is not None:

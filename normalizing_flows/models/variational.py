@@ -30,17 +30,16 @@ def nll_loss(distribution_fn, num_bins=None):
         return nll
     return nll
 
-class VariationalModel(Model):
+class VariationalModel(tf.Module):
     """
     Extension of Keras Model for supervised, variational inference networks.
     """
     def __init__(self,
+                 encoder: Model,
                  distribution_fn: Callable[[tf.Tensor], tfp.distributions.Distribution],
                  transform: flows.Transform=flows.Identity(),
                  num_bins=None,
-                 clip_grads=1.0,
-                 *model_args,
-                 **model_kwargs):
+                 clip_grads=1.0):
         """
         distribution_fn : a callable that takes a tf.Tensor and returns a valid
                           TFP Distribution
@@ -48,7 +47,7 @@ class VariationalModel(Model):
                           returned by distribution_fn; defaults to Identity (no transform)
         num_bins        : number of discretization bins to use; defaults to None (continuous inputs)
         """
-        super().__init__(*model_args, **model_kwargs)
+        self.encoder = encoder
         self.dist_fn = distribution_fn
         self.transform = transform
         self.num_bins = num_bins
@@ -61,11 +60,9 @@ class VariationalModel(Model):
         assert 'loss' not in kwargs, 'NLL loss is automatically supplied by VariationalModel'
         self.optimizer = optimizer
         self.transform.initialize(output_shape)
-        super().compile(loss=nll, target_tensors=K.placeholder(shape=output_shape, dtype=output_dtype), **kwargs)
         
     @tf.function
     def eval_batch(self, x, y, **flow_kwargs):
-        assert self.input_shape is not None, 'model not initialized'
         return tf.math.reduce_mean(-self.log_prob(x, y))
         
     @tf.function
@@ -79,10 +76,9 @@ class VariationalModel(Model):
                 ildj is the inverse log det jacobian,
                 and, if clip_grads is True, grad_norm is the global max gradient norm
         """
-        assert self.input_shape is not None, 'model not initialized (did you call compile?)'
         assert self.optimizer is not None, 'model not initialized (did you call compile?)'
         nll = self.eval_batch(x, y, **flow_kwargs)
-        reg_losses = self.get_losses_for(None)
+        reg_losses = self.encoder.get_losses_for(None)
         reg_losses += [self.transform._regularization_loss()]
         objective = nll + tf.math.add_n(reg_losses)
         gradients = self.optimizer.get_gradients(objective, self.trainable_variables)
@@ -119,30 +115,31 @@ class VariationalModel(Model):
         return self
         
     def log_prob(self, x, y):
-        params = self(x)
+        params = self.encoder(x)
         return self._log_prob(params, y)
         
     def predict_mean(self, x):
         assert self.transform.has_constant_ldj, 'mean not defined for transforms with variable logdetJ'
-        params = self(x)
+        params = self.encoder(x)
         dist = self.dist_fn(params)
         z = dist.mean()
         y, _ = self.transform.forward(tf.reshape(z, (tf.shape(z)[0], -1)))
         return y
     
-    def sample(self, x, sample_fn=None):
-        params = self(x)
+    def sample(self, x, sample_fn=None, flatten_z=False):
+        params = self.encoder(x)
         dist = self.dist_fn(params)
         if sample_fn is not None:
             z = sample_fn(dist)
         else:
             z = dist.sample()
-        z = (z - params[:,:,:,:1]) / (1.0E-6 + tf.math.exp(params[:,:,:,1:]))
-        y, _ = self.transform.forward(tf.reshape(z, (tf.shape(z)[0], -1)))
+        if flatten_z:
+            z = tf.reshape(z, (tf.shape(z)[0], -1))
+        y, _ = self.transform.forward(z)
         return y
         
     def quantile(self, x, q):
-        params = self(x)
+        params = self.encoder(x)
         dist = self.dist_fn(params)
         z = dist.quantile()
         y, _ = self.transform.forward(tf.reshape(z, (tf.shape(z)[0], -1)))
@@ -155,7 +152,7 @@ class VariationalModel(Model):
         dist = self.dist_fn(params)
         z, ildj = self.transform.inverse(y)
         z = tf.reshape(z, tf.shape(y))
-        prior_log_probs = dist.log_prob(z*(1.0E-6+tf.math.exp(params[:,:,:,1:])) + params[:,:,:,:1])
+        prior_log_probs = dist.log_prob(z)
         prior_log_probs = tf.math.reduce_sum(prior_log_probs, axis=[i for i in range(1, prior_log_probs.shape.rank)])
         log_probs = (prior_log_probs + ildj - self.scale_factor*num_elements) / num_elements
         return log_probs

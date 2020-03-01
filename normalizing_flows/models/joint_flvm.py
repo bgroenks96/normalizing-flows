@@ -1,13 +1,13 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
-import collections
 import normalizing_flows.utils as utils
 from normalizing_flows.flows import Transform
 from tqdm import tqdm
-from . import adversarial
+from .trackable_module import TrackableModule
+from .losses import wasserstein_loss
 
-class JointFlowLVM(tf.Module):
+class JointFlowLVM(TrackableModule):
     """
     Flow-based latent variable model for joint distribution inference.
     Given random variables X, Y; JointFlowLVM attempts to learn a latent variable
@@ -24,13 +24,15 @@ class JointFlowLVM(tf.Module):
                  prior: tfp.distributions.Distribution=tfp.distributions.Normal(loc=0.0, scale=1.0),
                  input_shape=None,
                  num_bins=None,
-                 adversarial_loss_ctor=adversarial.wasserstein_loss,
+                 Gx_aux_loss=lambda x,y: tf.constant(0.),
+                 Gy_aux_loss=lambda x,y: tf.constant(0.),
+                 adversarial_loss_ctor=wasserstein_loss,
                  optimizer_g=tf.keras.optimizers.Adam(lr=1.0E-4, beta_1=0.5, beta_2=0.9),
                  optimizer_dx=tf.keras.optimizers.Adam(lr=1.0E-4, beta_1=0.5, beta_2=0.9),
                  optimizer_dy=tf.keras.optimizers.Adam(lr=1.0E-4, beta_1=0.5, beta_2=0.9),
                  clip_grads=10.0,
-                 name='flvm'):
-        super().__init__(name=name)
+                 name='joint_flvm'):
+        super().__init__({'optimizer_g': optimizer_g, 'optimizer_dx': optimizer_dx, 'optimizer_dy': optimizer_dy}, name=name)
         self.G_zx = G_zx
         self.G_zy = G_zy
         self.D_x = D_x
@@ -38,7 +40,9 @@ class JointFlowLVM(tf.Module):
         self.prior = prior
         self.input_shape = input_shape
         self.num_bins = num_bins
-        self.loss_ctor = adversarial_loss_ctor
+        self.Gx_aux_loss = Gx_aux_loss
+        self.Gy_aux_loss = Gy_aux_loss
+        self.adv_loss_ctor = adversarial_loss_ctor
         self.optimizer_g = optimizer_g
         self.optimizer_dx = optimizer_dx
         self.optimizer_dy = optimizer_dy
@@ -52,8 +56,8 @@ class JointFlowLVM(tf.Module):
             
     def initialize(self, input_shape):
         self.input_shape = input_shape
-        self.Dx_loss, self.Gx_loss = self.loss_ctor(self.D_x)
-        self.Dy_loss, self.Gy_loss = self.loss_ctor(self.D_y)
+        self.Dx_loss, self.Gx_loss = self.adv_loss_ctor(self.D_x)
+        self.Dy_loss, self.Gy_loss = self.adv_loss_ctor(self.D_y)
         with tf.init_scope():
             self.G_zx.initialize(input_shape)
             self.G_zy.initialize(input_shape)
@@ -84,9 +88,18 @@ class JointFlowLVM(tf.Module):
         y_x, _ = self.G_zy.forward(z_x)
         z_y, ildj_y = self.G_zy.inverse(y)
         x_y, _ = self.G_zx.forward(z_y)
+        # prepare discriminator inputs;
+        # concatenate real/fake outputs with original (conditional) inputs
+        #x_d = tf.concat([x, y], axis=-1)
+        #x_yd = tf.concat([x_y, y], axis=-1)
+        #y_d = tf.concat([y, x], axis=-1)
+        #y_xd = tf.concat([y_x, x], axis=-1)
         # compute adversarial losses
         gx_loss = self.Gx_loss(x, x_y)
         gy_loss = self.Gy_loss(y, y_x)
+        # compute auxiliary loss
+        gx_aux = self.Gx_aux_loss(y, x_y)
+        gy_aux = self.Gy_aux_loss(x, y_x)
         # compute likelihood losses
         prior_logp_x = self.prior.log_prob(z_x)
         prior_logp_y = self.prior.log_prob(z_y)
@@ -96,31 +109,38 @@ class JointFlowLVM(tf.Module):
             prior_logp_y = tf.math.reduce_sum(prior_logp_y, axis=[i for i in range(1,prior_logp_y.shape.rank)])
         nll_x = -tf.math.reduce_mean((prior_logp_x + ildj_x - self.scale_factor*num_elements) / num_elements)
         nll_y = -tf.math.reduce_mean((prior_logp_y + ildj_y - self.scale_factor*num_elements) / num_elements)
-        return nll_x, nll_y, gx_loss, gy_loss
+        return nll_x, nll_y, gx_loss, gy_loss, gx_aux, gy_aux
     
     @tf.function
     def eval_discriminators_on_batch(self, x, y):
         x_pred = self.predict_x(y)
         y_pred = self.predict_y(x)
+        # prepare discriminator inputs;
+        # concatenate real/fake outputs with original (conditional) inputs
+        #x_d = tf.concat([x, y], axis=-1)
+        #x_pred_d = tf.concat([x_pred, y], axis=-1)
+        #y_d = tf.concat([y, x], axis=-1)
+        #y_pred_d = tf.concat([y_pred, x], axis=-1)
+        # evaluate discriminators
         dx_loss = self.Dx_loss(x, x_pred)
         dy_loss = self.Dy_loss(y, y_pred)
         return dx_loss, dy_loss
         
     @tf.function
-    def train_generators_on_batch(self, x, y, lam=1.0):
+    def train_generators_on_batch(self, x, y, lam=1.0, alpha=1.0):
         assert self.input_shape is not None, 'model not initialized'
-        nll_x, nll_y, gx_loss, gy_loss = self.eval_generators_on_batch(x, y)
+        nll_x, nll_y, gx_loss, gy_loss, gx_aux, gy_aux = self.eval_generators_on_batch(x, y)
         # compute losses
         reg_losses = [self.G_zx._regularization_loss()]
         reg_losses += [self.G_zy._regularization_loss()]
-        g_obj = gx_loss + gy_loss + lam*nll_x + lam*nll_y + tf.math.add_n(reg_losses)
+        g_obj = gx_loss + gy_loss + lam*(nll_x + nll_y) + alpha*(gx_aux + gy_aux) + tf.math.add_n(reg_losses)
         # generator gradient update
         generator_variables = list(self.G_zx.trainable_variables) + list(self.G_zy.trainable_variables)
         g_grads = tf.gradients(g_obj, generator_variables)
         if self.clip_grads:
             g_grads, grad_norm = tf.clip_by_global_norm(g_grads, self.clip_grads)
         self.optimizer_g.apply_gradients(zip(g_grads, generator_variables))
-        return g_obj, nll_x, nll_y, gx_loss, gy_loss
+        return g_obj, nll_x, nll_y, gx_loss, gy_loss, gx_aux, gy_aux
     
     @tf.function
     def train_discriminators_on_batch(self, x, y):
@@ -131,16 +151,17 @@ class JointFlowLVM(tf.Module):
         self.optimizer_dy.apply_gradients(zip(dy_grads, self.D_y.trainable_variables))
         return dx_loss, dy_loss
     
-    def train(self, train_data: tf.data.Dataset, steps_per_epoch, num_epochs=1, **flow_kwargs):
-        train_data = train_data.take(steps_per_epoch).repeat(num_epochs)
-        with tqdm(total=steps_per_epoch*num_epochs) as prog:
+    def train(self, train_data: tf.data.Dataset, steps_per_epoch, num_epochs=1,
+              lam=1.0, alpha=0.1, **flow_kwargs):
+        train_gen_data = train_data.take(steps_per_epoch).repeat(num_epochs)
+        with tqdm(total=steps_per_epoch*num_epochs, desc='train') as prog:
             hist = dict()
             for epoch in range(num_epochs):
-                for x,y in train_data.take(steps_per_epoch):
+                for x,y in train_gen_data.take(steps_per_epoch):
                     # train discriminators
                     dx_loss, dy_loss = self.train_discriminators_on_batch(x, y)
                     # train generators
-                    g_obj, nll_x, nll_y, _, _ = self.train_generators_on_batch(x, y)
+                    g_obj, nll_x, nll_y,_,_,_,_ = self.train_generators_on_batch(x, y, lam=lam)
                     utils.update_metrics(hist, g_obj=g_obj.numpy(), dx_loss=dx_loss.numpy(), dy_loss=dy_loss.numpy(),
                                          nll_x=nll_x.numpy(), nll_y=nll_y.numpy())
                     prog.update(1)
@@ -148,22 +169,25 @@ class JointFlowLVM(tf.Module):
                     
     def evaluate(self, validation_data: tf.data.Dataset, validation_steps, **flow_kwargs):
         validation_data = validation_data.take(validation_steps)
-        with tqdm(total=validation_steps) as prog:
+        with tqdm(total=validation_steps, desc='eval') as prog:
             hist = dict()
             for x,y in validation_data:
                 # train discriminators
                 dx_loss, dy_loss = self.eval_discriminators_on_batch(x, y)
                 # train generators
-                nll_x, nll_y, gx_loss, gy_loss = self.eval_generators_on_batch(x, y)
+                nll_x, nll_y, gx_loss, gy_loss, gx_aux, gy_aux = self.eval_generators_on_batch(x, y)
                 utils.update_metrics(hist,
                                      nll_x=nll_x.numpy(),
                                      nll_y=nll_y.numpy(),
                                      gx_loss=gx_loss.numpy(),
                                      gy_loss=gy_loss.numpy(),
                                      dx_loss=dx_loss.numpy(),
-                                     dy_loss=dy_loss.numpy())
+                                     dy_loss=dy_loss.numpy(),
+                                     gx_aux=gx_aux.numpy(),
+                                     gy_aux=gy_aux.numpy())
                 prog.update(1)
                 prog.set_postfix({k: v[0] for k,v in hist.items()})
+        return hist
                 
     def encode_x(self, x):
         z, _ = self.G_zx.inverse(x)
@@ -181,12 +205,11 @@ class JointFlowLVM(tf.Module):
         y, _ = self.G_zy.forward(z)
         return y
                 
-    def sample(self, n=1, y_cond=None):
+    def sample(self, n=1):
         assert self.input_shape is not None, 'model not initialized'
-        batch_size = 1 if y_cond is None else y_cond.shape[0]
         event_ndims = self.prior.event_shape.rank
         z_shape = self.input_shape[1:]
-        z = self.prior.sample((n*batch_size,*z_shape[:len(z_shape)-event_ndims]))
-        z = tf.reshape(z, (n*batch_size, -1))
+        z = self.prior.sample((n,*z_shape[:len(z_shape)-event_ndims]))
+        z = tf.reshape(z, (n, -1))
         return self.decode_x(z), self.decode_y(z)
     

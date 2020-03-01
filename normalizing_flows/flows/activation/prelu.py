@@ -6,7 +6,6 @@ from normalizing_flows.flows import Transform
 class PReLU(Transform):
     def __init__(self, **kwargs):
         super(PReLU, self).__init__(**kwargs)
-        self.scope = f'prelu_{self.unique_id}'
         self.alpha = tf.Variable(0.01, name='alpha', dtype=tf.float32)
 
     def _forward(self, z):
