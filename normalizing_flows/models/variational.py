@@ -1,11 +1,13 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
+import normalizing_flows.utils as utils
 import normalizing_flows.flows as flows
 import tensorflow.keras.backend as K
 from tensorflow.keras import Model
 from tqdm import tqdm
 from typing import Callable
+from .trackable_module import TrackableModule
 
 def nll_loss(distribution_fn, num_bins=None):
     """
@@ -15,7 +17,7 @@ def nll_loss(distribution_fn, num_bins=None):
                       TFP Distribution
     num_bins        : number of discretization bins; None for continuous data
     """
-    scale_factor = np.log2(num_bins) if num_bins is not None else 1.0
+    scale_factor = np.log2(num_bins) if num_bins is not None else 0.0
     def nll(y_true, y_pred):
         def _preprocess(self, x):
             if num_bins is not None:
@@ -30,7 +32,7 @@ def nll_loss(distribution_fn, num_bins=None):
         return nll
     return nll
 
-class VariationalModel(tf.Module):
+class VariationalModel(TrackableModule):
     """
     Extension of Keras Model for supervised, variational inference networks.
     """
@@ -38,8 +40,10 @@ class VariationalModel(tf.Module):
                  encoder: Model,
                  distribution_fn: Callable[[tf.Tensor], tfp.distributions.Distribution],
                  transform: flows.Transform=flows.Identity(),
+                 optimizer=tf.keras.optimizers.Adam(),
                  num_bins=None,
-                 clip_grads=1.0):
+                 output_shape=None,
+                 clip_grads=10.0):
         """
         distribution_fn : a callable that takes a tf.Tensor and returns a valid
                           TFP Distribution
@@ -47,18 +51,18 @@ class VariationalModel(tf.Module):
                           returned by distribution_fn; defaults to Identity (no transform)
         num_bins        : number of discretization bins to use; defaults to None (continuous inputs)
         """
+        super().__init__({'optimizer': optimizer})
         self.encoder = encoder
         self.dist_fn = distribution_fn
         self.transform = transform
+        self.optimizer = optimizer
         self.num_bins = num_bins
         self.scale_factor = np.log2(num_bins) if num_bins is not None else 1.0
         self.clip_grads = clip_grads
+        if output_shape is not None:
+            self.initialize(output_shape)
         
-    def compile(self, output_shape, optimizer, output_dtype=tf.float32, **kwargs):
-        def nll(y_true, y_pred):
-            return -self._log_prob(y_pred, y_true)
-        assert 'loss' not in kwargs, 'NLL loss is automatically supplied by VariationalModel'
-        self.optimizer = optimizer
+    def initialize(self, output_shape):
         self.transform.initialize(output_shape)
         
     @tf.function
@@ -93,56 +97,52 @@ class VariationalModel(tf.Module):
         data.repeat(epochs)
         if validation_data is not None:
             validation_data = validation_data.repeat(epochs)
+        test_hist = dict()
         for epoch in range(epochs):
+            train_hist = dict()
             with tqdm(total=steps_per_epoch, desc=f'train, epoch {epoch+1}/{epochs}') as prog:
-                avg_nll = 0.0
-                avg_loss = 0.0
                 for i, (x, y) in enumerate(data.take(steps_per_epoch)):
                     loss, nll = self.train_batch(x, y, **flow_kwargs)
-                    avg_nll = (nll.numpy() + i*avg_nll) / (i+1)
-                    avg_loss = (loss.numpy() + i*avg_loss) / (i+1)
+                    utils.update_metrics(train_hist, loss=loss.numpy(), nll=nll.numpy())
                     prog.update(1)
-                    prog.set_postfix({'loss': avg_loss, 'nll': avg_nll})
-            with tqdm(total=steps_per_epoch, desc=f'test, epoch {epoch+1}/{epochs}') as prog:
+                    prog.set_postfix(utils.get_metrics(train_hist))
+            with tqdm(total=validation_steps, desc=f'test, epoch {epoch+1}/{epochs}') as prog:
                 if validation_data is None:
                     continue
-                avg_nll_test = 0.0
                 for i, (x, y) in enumerate(validation_data.take(validation_steps)):
                     nll = self.eval_batch(x, y, **flow_kwargs)
-                    avg_nll_test = (nll.numpy() + i*avg_nll_test) / (i+1)
+                    utils.update_metrics(test_hist, nll=nll.numpy())
                     prog.update(1)
-                    prog.set_postfix({'nll': avg_nll_test})
-        return self
+                    prog.set_postfix(utils.get_metrics(test_hist))
+        return test_hist
         
     def log_prob(self, x, y):
         params = self.encoder(x)
         return self._log_prob(params, y)
         
-    def predict_mean(self, x):
+    def mean(self, x):
         assert self.transform.has_constant_ldj, 'mean not defined for transforms with variable logdetJ'
         params = self.encoder(x)
         dist = self.dist_fn(params)
         z = dist.mean()
-        y, _ = self.transform.forward(tf.reshape(z, (tf.shape(z)[0], -1)))
+        y, _ = self.transform.forward(z)
         return y
     
-    def sample(self, x, sample_fn=None, flatten_z=False):
+    def sample(self, x, sample_fn=None):
         params = self.encoder(x)
         dist = self.dist_fn(params)
         if sample_fn is not None:
             z = sample_fn(dist)
         else:
             z = dist.sample()
-        if flatten_z:
-            z = tf.reshape(z, (tf.shape(z)[0], -1))
         y, _ = self.transform.forward(z)
         return y
         
     def quantile(self, x, q):
         params = self.encoder(x)
         dist = self.dist_fn(params)
-        z = dist.quantile()
-        y, _ = self.transform.forward(tf.reshape(z, (tf.shape(z)[0], -1)))
+        z = dist.quantile(q)
+        y, _ = self.transform.forward(z)
         return y
     
     def _log_prob(self, params, y):
@@ -151,7 +151,6 @@ class VariationalModel(tf.Module):
         num_elements = tf.math.reduce_prod(tf.cast(tf.shape(y)[1:], dtype=y.dtype))
         dist = self.dist_fn(params)
         z, ildj = self.transform.inverse(y)
-        z = tf.reshape(z, tf.shape(y))
         prior_log_probs = dist.log_prob(z)
         prior_log_probs = tf.math.reduce_sum(prior_log_probs, axis=[i for i in range(1, prior_log_probs.shape.rank)])
         log_probs = (prior_log_probs + ildj - self.scale_factor*num_elements) / num_elements

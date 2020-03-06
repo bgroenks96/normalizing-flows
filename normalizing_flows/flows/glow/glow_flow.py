@@ -42,7 +42,7 @@ class GlowFlow(Transform):
     def __init__(self,
                  input_shape=None,
                  num_layers=1,
-                 depth_per_layer=4,
+                 depth=4,
                  cond_shape=None,
                  parameterize_ctor=Gaussianize,
                  coupling_nn_ctor=coupling_nn_glow(),
@@ -72,17 +72,19 @@ class GlowFlow(Transform):
             assert i < num_layers, f'expected i < {num_layers}; got {i}'
             return glow_layer(i,
                               parameterize_ctor(name=f'{name}_layer{i}_param'),
-                              depth=depth_per_layer,
+                              depth=depth,
                               coupling_nn_ctor=coupling_nn_ctor,
                               act_norm=act_norm,
                               split_axis=None if i == num_layers - 1 else -1,
                               name=f'{name}_layer{i}')
+        super().__init__(*args, name=name, **kwargs)
         self.num_layers = num_layers
-        self.depth_per_layer = depth_per_layer
+        self.depth = depth
         self.cond_shape = cond_shape
         self.layers = [_layer(i) for i in range(num_layers)]
         self.parameterize = parameterize_ctor()
-        super().__init__(*args, input_shape=input_shape, name=name, **kwargs)
+        if input_shape is not None:
+            self.initialize(input_shape)
         
     def _build_cond_fn(self, cond_shape, z_shape):
         from tensorflow.keras import Model
@@ -135,7 +137,7 @@ class GlowFlow(Transform):
             st += size_i
         return zs
             
-    def _forward(self, x, flatten_zs=True, **kwargs):
+    def _forward(self, x, return_zs=False, **kwargs):
         assert self.cond_shape is None or 'y_cond' in kwargs, 'y_cond must be supplied for conditional flow'
         zs = []
         x_i = x
@@ -155,15 +157,14 @@ class GlowFlow(Transform):
         z_i, fldj_i = self.parameterize.forward(h, x_i)
         fldj += fldj_i
         zs.append(z_i)
-        if flatten_zs:
-            return self._flatten_zs(zs), fldj
-        else:
+        if return_zs:
             return zs, fldj
+        z = self._flatten_zs(zs)
+        return tf.reshape(z, tf.shape(x)), fldj
             
-    def _inverse(self, zs, flatten_zs=True, **kwargs):
+    def _inverse(self, z, input_zs=False, **kwargs):
         assert self.cond_shape is None or 'y_cond' in kwargs, 'y_cond must be supplied for conditional flow'
-        if flatten_zs:
-            zs = self._unflatten_z(zs)
+        zs = z if input_zs else self._unflatten_z(tf.reshape(z, (tf.shape(z)[0], -1)))
         assert len(zs) == self.num_layers, 'number of latent space inputs should match number of layers'
         h = tf.zeros_like(zs[-1])
         if self.cond_shape is not None:

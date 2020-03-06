@@ -9,6 +9,9 @@ def update_metrics(metric_dict, **kwargs):
         else:
             metric_dict[k] = (v, 0)
             
+def get_metrics(metric_dict):
+    return {k: v[0] for k, v in metric_dict.items()}
+            
 def var(x: tf.Variable):
     """
     Workaround for Tensorflow bug #32748 (https://github.com/tensorflow/tensorflow/issues/32748)

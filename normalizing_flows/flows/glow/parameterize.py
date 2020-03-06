@@ -24,8 +24,10 @@ class Parameterize(Transform):
         with 'num_parameters' parameters. Can be overridden by subclasses.
         """
         x = Input(z_shape[1:])
-        h = Conv2D(self.num_parameters*z_shape[-1], 3, padding='same', activation='linear', kernel_initializer='zeros')(x)
-        params = Conv2D(self.num_parameters*z_shape[-1], 1, activation='linear', kernel_initializer='zeros')(h)
+        h = Conv2D(self.num_parameters*z_shape[-1], 3, padding='same', activation='linear',
+                   kernel_initializer='zeros', name=f'{self.name}/conv2d_1')(x)
+        params = Conv2D(self.num_parameters*z_shape[-1], 1, activation='linear',
+                        kernel_initializer='zeros', name=f'{self.name}/conv2d_2')(h)
         return Model(inputs=x, outputs=params)
         
     def _initialize(self, input_shape):

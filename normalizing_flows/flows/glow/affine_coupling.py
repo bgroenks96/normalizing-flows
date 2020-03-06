@@ -8,26 +8,27 @@ def coupling_nn_glow(min_filters=32, max_filters=512, kernel_size=3, num_blocks=
     from tensorflow.keras.layers import Input, Conv2D, BatchNormalization, Activation, Lambda, add
     from tensorflow.keras.regularizers import l2
     from normalizing_flows.layers import ActNorm
-    def _resnet_block(x, num_filters):
-        h = Conv2D(num_filters, kernel_size, padding='same', kernel_regularizer=l2(alpha))(x)
-        h = ActNorm()(h)
+    def _resnet_block(x, num_filters, base_name):
+        h = Conv2D(num_filters, kernel_size, padding='same', kernel_regularizer=l2(alpha), name=f'{base_name}/conv2d_1')(x)
+        h = ActNorm(name=f'{base_name}/act_norm_1')(h)
         h = Activation('relu')(h)
-        h = Conv2D(num_filters, kernel_size, padding='same', kernel_regularizer=l2(alpha))(h)
-        h = ActNorm()(h)
+        h = Conv2D(num_filters, kernel_size, padding='same', kernel_regularizer=l2(alpha), name=f'{base_name}/conv2d_2')(h)
+        h = ActNorm(name=f'{base_name}/act_norm_2')(h)
         h = add([x, h])
         h = Activation('relu')(h)
         return h
-    def f(i, c, log_scale: tf.Variable):
+    def f(i, c, log_scale: tf.Variable, base_name):
         num_filters = np.minimum(min_filters*2**i, max_filters)
         x = Input((None,None,c//2))
-        h = Conv2D(num_filters, kernel_size, padding='same', kernel_regularizer=l2(alpha))(x)
+        h = Conv2D(num_filters, kernel_size, padding='same', kernel_regularizer=l2(alpha), name=f'{base_name}/conv2d_1')(x)
         h = Activation('relu')(h)
         for i in range(num_blocks):
-            h = _resnet_block(h, num_filters)
-        s = Conv2D(c//2, kernel_size, padding='same', kernel_regularizer=l2(alpha), kernel_initializer='zeros')(h)
+            h = _resnet_block(h, num_filters, f'{base_name}_{i}')
+        s = Conv2D(c//2, kernel_size, padding='same', kernel_regularizer=l2(alpha), kernel_initializer='zeros',
+                   name=f'{base_name}/conv2d_s')(h)
         s = Lambda(lambda x: x*tf.math.exp(log_scale))(s)
         s = Activation(lambda x: tf.nn.sigmoid(x)+0.1)(s)
-        t = Conv2D(c//2, kernel_size, padding='same', kernel_initializer='zeros')(h)
+        t = Conv2D(c//2, kernel_size, padding='same', kernel_initializer='zeros', name=f'{base_name}/conv2d_t')(h)
         model = Model(inputs=x, outputs=[s, t])
         return model
     return f
@@ -52,7 +53,7 @@ class AffineCoupling(Transform):
     def _initialize(self, input_shape):
         if self.nn is None:
             self.log_scale = tf.Variable(tf.zeros((1,1,1,input_shape[-1]//2)), dtype=tf.float32, name=f'{self.name}/log_scale')
-            self.nn = self.nn_ctor(self.layer, input_shape[-1], self.log_scale)
+            self.nn = self.nn_ctor(self.layer, input_shape[-1], self.log_scale, self.name)
     
     def _forward(self, x, **kwargs):
         x_a, x_b = tf.split(x, 2, axis=-1)

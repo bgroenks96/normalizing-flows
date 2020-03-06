@@ -49,7 +49,7 @@ def test_unflatten_z():
     glow = GlowFlow(shape, num_layers=3, depth_per_layer=1)
     x = normal_diag.sample((n,))
     z_flat, _ = glow.forward(x)
-    zs, _ = glow.forward(x, flatten_zs=False)
+    zs, _ = glow.forward(x, return_zs=False)
     z_shapes = [z.shape for z in zs]
     np.testing.assert_equal(3, len(zs))
     np.testing.assert_array_equal(z_flat.shape, (n, np.prod(shape[1:])))

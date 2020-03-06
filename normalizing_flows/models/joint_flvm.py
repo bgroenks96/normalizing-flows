@@ -32,6 +32,7 @@ class JointFlowLVM(TrackableModule):
                  optimizer_dy=tf.keras.optimizers.Adam(lr=1.0E-4, beta_1=0.5, beta_2=0.9),
                  clip_grads=10.0,
                  name='joint_flvm'):
+        assert G_zx.name != G_zy.name, 'generators must have unique names'
         super().__init__({'optimizer_g': optimizer_g, 'optimizer_dx': optimizer_dx, 'optimizer_dy': optimizer_dy}, name=name)
         self.G_zx = G_zx
         self.G_zy = G_zy
@@ -61,6 +62,7 @@ class JointFlowLVM(TrackableModule):
         with tf.init_scope():
             self.G_zx.initialize(input_shape)
             self.G_zy.initialize(input_shape)
+        self._init_checkpoint()
     
     def _preprocess(self, x):
         if self.num_bins is not None:
@@ -88,12 +90,6 @@ class JointFlowLVM(TrackableModule):
         y_x, _ = self.G_zy.forward(z_x)
         z_y, ildj_y = self.G_zy.inverse(y)
         x_y, _ = self.G_zx.forward(z_y)
-        # prepare discriminator inputs;
-        # concatenate real/fake outputs with original (conditional) inputs
-        #x_d = tf.concat([x, y], axis=-1)
-        #x_yd = tf.concat([x_y, y], axis=-1)
-        #y_d = tf.concat([y, x], axis=-1)
-        #y_xd = tf.concat([y_x, x], axis=-1)
         # compute adversarial losses
         gx_loss = self.Gx_loss(x, x_y)
         gy_loss = self.Gy_loss(y, y_x)
@@ -115,12 +111,6 @@ class JointFlowLVM(TrackableModule):
     def eval_discriminators_on_batch(self, x, y):
         x_pred = self.predict_x(y)
         y_pred = self.predict_y(x)
-        # prepare discriminator inputs;
-        # concatenate real/fake outputs with original (conditional) inputs
-        #x_d = tf.concat([x, y], axis=-1)
-        #x_pred_d = tf.concat([x_pred, y], axis=-1)
-        #y_d = tf.concat([y, x], axis=-1)
-        #y_pred_d = tf.concat([y_pred, x], axis=-1)
         # evaluate discriminators
         dx_loss = self.Dx_loss(x, x_pred)
         dy_loss = self.Dy_loss(y, y_pred)
@@ -165,7 +155,8 @@ class JointFlowLVM(TrackableModule):
                     utils.update_metrics(hist, g_obj=g_obj.numpy(), dx_loss=dx_loss.numpy(), dy_loss=dy_loss.numpy(),
                                          nll_x=nll_x.numpy(), nll_y=nll_y.numpy())
                     prog.update(1)
-                    prog.set_postfix({k: v[0] for k,v in hist.items()})
+                    prog.set_postfix(utils.get_metrics(hist))
+        return hist
                     
     def evaluate(self, validation_data: tf.data.Dataset, validation_steps, **flow_kwargs):
         validation_data = validation_data.take(validation_steps)
@@ -186,7 +177,7 @@ class JointFlowLVM(TrackableModule):
                                      gx_aux=gx_aux.numpy(),
                                      gy_aux=gy_aux.numpy())
                 prog.update(1)
-                prog.set_postfix({k: v[0] for k,v in hist.items()})
+                prog.set_postfix(utils.get_metrics(hist))
         return hist
                 
     def encode_x(self, x):
@@ -209,7 +200,9 @@ class JointFlowLVM(TrackableModule):
         assert self.input_shape is not None, 'model not initialized'
         event_ndims = self.prior.event_shape.rank
         z_shape = self.input_shape[1:]
-        z = self.prior.sample((n,*z_shape[:len(z_shape)-event_ndims]))
-        z = tf.reshape(z, (n, -1))
+        if self.prior.is_scalar_batch():
+            z = self.prior.sample((n,*z_shape[:len(z_shape)-event_ndims]))
+        else:
+            z = self.prior.sample((n,))
         return self.decode_x(z), self.decode_y(z)
     

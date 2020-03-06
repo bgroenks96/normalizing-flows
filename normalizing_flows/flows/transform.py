@@ -3,7 +3,6 @@ import tensorflow_probability as tfp
 import numpy as np
 
 class Transform(tf.Module):
-    unique_id = 0
     def __init__(self,
                  input_shape: tf.TensorShape=None,
                  requires_init=False,
@@ -11,10 +10,8 @@ class Transform(tf.Module):
                  *args, **kwargs):
         self.input_shape = input_shape
         self.requires_init = requires_init
-        self.has_constant_ldj=has_constant_ldj
-        self.unique_id = Transform.unique_id
-        Transform.unique_id += 1
-        name = kwargs['name'] if 'name' in kwargs else '{}_{}'.format(type(self).__name__, self.unique_id)
+        self.has_constant_ldj = has_constant_ldj
+        name = kwargs['name'] if 'name' in kwargs else type(self).__name__
         super().__init__(name=name)
         if input_shape is not None:
             self.initialize(input_shape)
