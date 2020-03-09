@@ -64,6 +64,7 @@ class VariationalModel(TrackableModule):
         
     def initialize(self, output_shape):
         self.transform.initialize(output_shape)
+        self._init_checkpoint()
         
     @tf.function
     def eval_batch(self, x, y, **flow_kwargs):

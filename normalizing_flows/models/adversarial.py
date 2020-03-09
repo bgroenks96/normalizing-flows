@@ -8,8 +8,6 @@ class PatchDiscriminator(Model):
     Implementation of PatchGAN (Isola et al. 2017) discriminator from CycleGAN (Zhu et al. 2018)
     """
     def __init__(self, input_shape, n_layers=3, n_filters=64, k=3, norm=InstanceNormalization):
-        def bce(y_true, y_pred):
-            return binary_crossentropy(y_true, y_pred)
         x = Input(input_shape)
         y = x
         for i in range(n_layers):

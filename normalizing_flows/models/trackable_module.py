@@ -8,12 +8,10 @@ class TrackableModule(tf.Module):
         
     def _init_checkpoint(self):
         variables = dict()
-        for var in self.variables:
-            k,v = var.name, var
-            assert k not in variables, f'found duplicate variable {k}'
-            variables[k] = v
-        for k, v in self.additional_objects.items():
-            variables[k] = v
+        for i, var in enumerate(self.variables):
+            variables[f'var_{i}'] = var
+        for j, v in enumerate(self.additional_objects.values()):
+            variables[f'obj_{j}'] = v
         self.checkpoint = tf.train.Checkpoint(**variables)
         
     def checkpoint_num(self):

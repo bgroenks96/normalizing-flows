@@ -142,20 +142,22 @@ class JointFlowLVM(TrackableModule):
         return dx_loss, dy_loss
     
     def train(self, train_data: tf.data.Dataset, steps_per_epoch, num_epochs=1,
-              lam=1.0, alpha=0.1, **flow_kwargs):
+              lam=1.0, lam_decay=0.0, alpha=0.1, **flow_kwargs):
         train_gen_data = train_data.take(steps_per_epoch).repeat(num_epochs)
         with tqdm(total=steps_per_epoch*num_epochs, desc='train') as prog:
             hist = dict()
+            lam = tf.Variable(lam, dtype=tf.float32)
             for epoch in range(num_epochs):
                 for x,y in train_gen_data.take(steps_per_epoch):
                     # train discriminators
                     dx_loss, dy_loss = self.train_discriminators_on_batch(x, y)
                     # train generators
-                    g_obj, nll_x, nll_y,_,_,_,_ = self.train_generators_on_batch(x, y, lam=lam)
+                    g_obj, nll_x, nll_y,_,_,_,_ = self.train_generators_on_batch(x, y, lam=utils.var(lam))
                     utils.update_metrics(hist, g_obj=g_obj.numpy(), dx_loss=dx_loss.numpy(), dy_loss=dy_loss.numpy(),
                                          nll_x=nll_x.numpy(), nll_y=nll_y.numpy())
                     prog.update(1)
                     prog.set_postfix(utils.get_metrics(hist))
+                lam.assign_sub(lam_decay)
         return hist
                     
     def evaluate(self, validation_data: tf.data.Dataset, validation_steps, **flow_kwargs):

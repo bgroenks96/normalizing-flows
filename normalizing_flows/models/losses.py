@@ -56,14 +56,15 @@ def bce_loss(D, from_logits=True):
         return D_loss(x_pred, x_true)
     return D_loss, G_loss
 
-def spatial_mae(scale, stride=1):
+def spatial_mae(scale, c=1.0, stride=1):
     """
     "Spatial" MAE auxiliary loss for generator. Penalizes outputs
     which violate spatial average preservation between input and output.
+    c is an additional constant multiplied with the kernel.
     """
-    kernel = tf.ones((scale,scale,1,1)) / (scale**2.)
+    kernel = c*tf.ones((scale,scale,1,1)) / (scale**2.)
     def _spatial_mse(x_in, y_pred):
-        x_avg = tf.nn.conv2d(x_in, kernel, strides=(stride, stride), padding='VALID')
-        y_avg = tf.nn.conv2d(y_pred, kernel, strides=(stride, stride), padding='VALID')
+        x_avg = tf.nn.conv2d(x_in, kernel, strides=(stride, stride), padding='SAME')
+        y_avg = tf.nn.conv2d(y_pred, kernel, strides=(stride, stride), padding='SAME')
         return tf.math.reduce_mean(tf.math.abs(y_avg - x_avg))
     return _spatial_mse
