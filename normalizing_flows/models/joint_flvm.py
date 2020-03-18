@@ -182,23 +182,51 @@ class JointFlowLVM(TrackableModule):
                 prog.set_postfix(utils.get_metrics(hist))
         return hist
                 
-    def encode_x(self, x):
-        z, _ = self.G_zx.inverse(x)
-        return z
+    def encode_x(self, x, return_log_prob=False):
+        z, ildj = self.G_zx.inverse(x)
+        if return_log_prob:
+            num_elements = tf.cast(x.shape[1]*x.shape[2]*x.shape[3], tf.float32)
+            log_prob = tf.math.reduce_sum(self.prior.log_prob(z), axis=[i for i in range(1,z.shape.rank)])
+            log_prob += ildj
+            log_prob /= num_elements
+            return z, log_prob
+        else:
+            return z
     
-    def decode_x(self, z):
-        x, _ = self.G_zx.forward(z)
-        return x
+    def decode_x(self, z, return_log_prob=False):
+        x, fldj = self.G_zx.forward(z)
+        if return_log_prob:
+            num_elements = tf.cast(x.shape[1]*x.shape[2]*x.shape[3], tf.float32)
+            log_prob = tf.math.reduce_sum(self.prior.log_prob(z), axis=[i for i in range(1,z.shape.rank)])
+            log_prob += fldj
+            log_prob /= num_elements
+            return x, log_prob
+        else:
+            return x
     
-    def encode_y(self, y):
-        y, _ = self.G_zy.inverse(y)
-        return y
+    def encode_y(self, y, return_log_prob=False):
+        z, ildj = self.G_zy.inverse(y)
+        if return_log_prob:
+            num_elements = tf.cast(y.shape[1]*y.shape[2]*y.shape[3], tf.float32)
+            log_prob = tf.math.reduce_sum(self.prior.log_prob(z), axis=[i for i in range(1,z.shape.rank)])
+            log_prob += ildj
+            log_prob /= num_elements
+            return z, log_prob
+        else:
+            return z
     
-    def decode_y(self, z):
-        y, _ = self.G_zy.forward(z)
-        return y
+    def decode_y(self, z, return_log_prob=False):
+        y, fldj = self.G_zy.forward(z)
+        if return_log_prob:
+            num_elements = tf.cast(y.shape[1]*y.shape[2]*y.shape[3], tf.float32)
+            log_prob = tf.math.reduce_sum(self.prior.log_prob(z), axis=[i for i in range(1,z.shape.rank)])
+            log_prob += fldj
+            log_prob /= num_elements
+            return y, log_prob
+        else:
+            return y
                 
-    def sample(self, n=1):
+    def sample(self, n=1, return_log_prob=False):
         assert self.input_shape is not None, 'model not initialized'
         event_ndims = self.prior.event_shape.rank
         z_shape = self.input_shape[1:]
@@ -206,5 +234,5 @@ class JointFlowLVM(TrackableModule):
             z = self.prior.sample((n,*z_shape[:len(z_shape)-event_ndims]))
         else:
             z = self.prior.sample((n,))
-        return self.decode_x(z), self.decode_y(z)
+        return self.decode_x(z, return_log_prob=return_log_prob), self.decode_y(z, return_log_prob=return_log_prob)
     
