@@ -70,13 +70,13 @@ class JointFlowLVM(TrackableModule):
         return x
     
     def predict_y(self, x):
-        z, _ = self.G_zx.inverse(x)
-        y, _ = self.G_zy.forward(z)
+        z, ildj = self.G_zx.inverse(x)
+        y, fldj = self.G_zy.forward(z)
         return y
     
     def predict_x(self, y):
-        z, _ = self.G_zy.inverse(y)
-        x, _ = self.G_zx.forward(z)
+        z, ildj = self.G_zy.inverse(y)
+        x, fldj = self.G_zx.forward(z)
         return x
         
     @tf.function
@@ -152,8 +152,8 @@ class JointFlowLVM(TrackableModule):
                     # train discriminators
                     dx_loss, dy_loss = self.train_discriminators_on_batch(x, y)
                     # train generators
-                    g_obj, nll_x, nll_y,_,_,_,_ = self.train_generators_on_batch(x, y, lam=utils.var(lam))
-                    utils.update_metrics(hist, g_obj=g_obj.numpy(), dx_loss=dx_loss.numpy(), dy_loss=dy_loss.numpy(),
+                    g_obj, nll_x, nll_y, gx_loss, gy_loss, gx_aux, gy_aux = self.train_generators_on_batch(x, y, lam=utils.var(lam))
+                    utils.update_metrics(hist, g_obj=g_obj.numpy(), gx_loss=gx_loss.numpy(), gy_loss=dy_loss.numpy(),
                                          nll_x=nll_x.numpy(), nll_y=nll_y.numpy())
                     prog.update(1)
                     prog.set_postfix(utils.get_metrics(hist))
