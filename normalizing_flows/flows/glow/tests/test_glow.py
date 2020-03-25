@@ -1,5 +1,5 @@
-from flows import Flow
-from flows.glow import GlowFlow, GlowStep, Squeeze
+from normalizing_flows.flows import Flow
+from normalizing_flows.flows.glow import GlowFlow, Squeeze, glow_step
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
@@ -11,7 +11,8 @@ def test_step_forward_inverse(layer):
     shape = tf.TensorShape((1,8,8,4))
     normal_diag = tfp.distributions.MultivariateNormalDiag(loc=np.zeros(shape, dtype=np.float32),
                                                            scale_diag=np.ones(shape, dtype=np.float32))
-    glow = GlowStep(shape)
+    glow = glow_step(layer)
+    glow.initialize(shape)
     x = normal_diag.sample()
     y, fldj = glow.forward(x)
     x_, ildj = glow.inverse(y)
@@ -49,7 +50,8 @@ def test_unflatten_z():
     glow = GlowFlow(shape, num_layers=3, depth_per_layer=1)
     x = normal_diag.sample((n,))
     z_flat, _ = glow.forward(x)
-    zs, _ = glow.forward(x, return_zs=False)
+    z_flat = tf.reshape(z_flat, (z_flat.shape[0],-1))
+    zs, _ = glow.forward(x, return_zs=True)
     z_shapes = [z.shape for z in zs]
     np.testing.assert_equal(3, len(zs))
     np.testing.assert_array_equal(z_flat.shape, (n, np.prod(shape[1:])))

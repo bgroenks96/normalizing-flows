@@ -32,7 +32,7 @@ def invertible_1x1_conv(x, L, U, P, log_d, sgn_d, inverse=tf.constant(False)):
     return y, ldj
 
 class InvertibleConv(Transform):
-    def __init__(self, input_shape=None, alpha=1.0E-3, name='invertible_1x1_conv', *args, **kwargs):
+    def __init__(self, input_shape=None, alpha=1.0E-4, name='invertible_1x1_conv', *args, **kwargs):
         self.alpha = alpha
         self.init = False
         super().__init__(*args,

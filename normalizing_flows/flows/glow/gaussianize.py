@@ -38,7 +38,7 @@ def log_gaussianize(x, mus, log_sigmas, inverse=tf.constant(False)):
     if inverse:
         scales = tf.math.exp(log_sigmas)
         log_x = tf.math.log(x)
-        ldj = -log_x
+        ldj = log_x
         log_y = log_x*scales + mus
         ldj += log_sigmas
         z = tf.math.exp(log_y)

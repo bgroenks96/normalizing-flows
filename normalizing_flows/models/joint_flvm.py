@@ -198,7 +198,7 @@ class JointFlowLVM(TrackableModule):
         if return_log_prob:
             num_elements = tf.cast(x.shape[1]*x.shape[2]*x.shape[3], tf.float32)
             log_prob = tf.math.reduce_sum(self.prior.log_prob(z), axis=[i for i in range(1,z.shape.rank)])
-            log_prob += fldj
+            log_prob -= fldj
             log_prob /= num_elements
             return x, log_prob
         else:
@@ -220,7 +220,7 @@ class JointFlowLVM(TrackableModule):
         if return_log_prob:
             num_elements = tf.cast(y.shape[1]*y.shape[2]*y.shape[3], tf.float32)
             log_prob = tf.math.reduce_sum(self.prior.log_prob(z), axis=[i for i in range(1,z.shape.rank)])
-            log_prob += fldj
+            log_prob -= fldj
             log_prob /= num_elements
             return y, log_prob
         else:
