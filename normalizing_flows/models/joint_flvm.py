@@ -69,15 +69,21 @@ class JointFlowLVM(TrackableModule):
             x += tf.random.uniform(x.shape, 0, 1./self.num_bins)
         return x
     
-    def predict_y(self, x):
-        z, ildj = self.G_zx.inverse(x)
-        y, fldj = self.G_zy.forward(z)
-        return y
+    def predict_y(self, x, return_log_prob=False):
+        if return_log_prob:
+            z, p_x = self.encode_x(x, return_log_prob=return_log_prob)
+            y, p_y = self.decode_y(z, return_log_prob=return_log_prob)
+            return y, p_y, p_x
+        else:
+            return self.decode_y(self.encode_x(x))
     
-    def predict_x(self, y):
-        z, ildj = self.G_zy.inverse(y)
-        x, fldj = self.G_zx.forward(z)
-        return x
+    def predict_x(self, y, return_log_prob=False):
+        if return_log_prob:
+            z, p_y = self.encode_y(y, return_log_prob=return_log_prob)
+            x, p_x = self.decode_x(z, return_log_prob=return_log_prob)
+            return x, p_x, p_y
+        else:
+            return self.decode_x(self.encode_y(y))
         
     @tf.function
     def eval_generators_on_batch(self, x, y):
@@ -236,3 +242,36 @@ class JointFlowLVM(TrackableModule):
             z = self.prior.sample((n,))
         return self.decode_x(z, return_log_prob=return_log_prob), self.decode_y(z, return_log_prob=return_log_prob)
     
+    def sample_predict_y(self, x, n=1, temperature=0.5, return_log_prob=False):
+        assert self.input_shape is not None, 'model not initialized'
+        z = self.encode_x(x)
+        eps = tf.random.normal((z.shape[0], n,*z.shape[1:]), stddev=temperature)
+        zs = eps + tf.expand_dims(z, axis=1)
+        zs = tf.reshape(zs, (n*z.shape[0], *z.shape[1:]))
+        x_, p_zx = self.decode_x(zs, return_log_prob=True)
+        y_, p_zy = self.decode_y(zs, return_log_prob=True)
+        x_ = tf.reshape(x_, (x.shape[0], n, *x.shape[1:]))
+        y_ = tf.reshape(y_, (x.shape[0], n, *x.shape[1:]))
+        p_zx = tf.reshape(p_zx, (z.shape[0], n))
+        p_zy = tf.reshape(p_zy, (z.shape[0], n))
+        if return_log_prob:
+            return y_, x_, p_zx, p_zy
+        else:
+            return y_, x_
+    
+    def sample_predict_x(self, y, n=1, temperature=0.5, return_log_prob=False):
+        assert self.input_shape is not None, 'model not initialized'
+        z = self.encode_y(x)
+        eps = tf.random.normal((z.shape[0], n,*z.shape[1:]), stddev=temperature)
+        zs = eps + tf.expand_dims(z, axis=1)
+        zs = tf.reshape(zs, (n*z.shape[0], *z.shape[1:]))
+        x_, p_zx = self.decode_x(zs, return_log_prob=True)
+        y_, p_zy = self.decode_y(zs, return_log_prob=True)
+        x_ = tf.reshape(x_, (y.shape[0], n, *y.shape[1:]))
+        y_ = tf.reshape(y_, (y.shape[0], n, *y.shape[1:]))
+        p_zx = tf.reshape(p_zx, (z.shape[0], n))
+        p_zy = tf.reshape(p_zy, (z.shape[0], n))
+        if return_log_prob:
+            return x_, y_, p_zx, p_zy
+        else:
+            return x_, y_
