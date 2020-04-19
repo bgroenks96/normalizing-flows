@@ -121,6 +121,11 @@ class VariationalModel(TrackableModule):
         params = self.encoder(x)
         return self._log_prob(params, y)
         
+    def encode(self, x):
+        params = self.encoder(x)
+        dist = self.dist_fn(params)
+        return dist
+        
     def mean(self, x):
         assert self.transform.has_constant_ldj, 'mean not defined for transforms with variable logdetJ'
         params = self.encoder(x)
