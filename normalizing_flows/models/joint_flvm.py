@@ -123,7 +123,7 @@ class JointFlowLVM(TrackableModule):
         return dx_loss, dy_loss
         
     @tf.function
-    def train_generators_on_batch(self, x, y, lam=1.0, alpha=1.0):
+    def train_generators_on_batch(self, x, y, lam=1.0, alpha=0.0):
         assert self.input_shape is not None, 'model not initialized'
         nll_x, nll_y, gx_loss, gy_loss, gx_aux, gy_aux = self.eval_generators_on_batch(x, y)
         # compute losses
@@ -148,7 +148,7 @@ class JointFlowLVM(TrackableModule):
         return dx_loss, dy_loss
     
     def train(self, train_data: tf.data.Dataset, steps_per_epoch, num_epochs=1,
-              lam=1.0, lam_decay=0.0, alpha=0.1, **flow_kwargs):
+              lam=1.0, lam_decay=0.0, alpha=0.0, **flow_kwargs):
         train_gen_data = train_data.take(steps_per_epoch).repeat(num_epochs)
         with tqdm(total=steps_per_epoch*num_epochs, desc='train') as prog:
             hist = dict()
@@ -158,7 +158,7 @@ class JointFlowLVM(TrackableModule):
                     # train discriminators
                     dx_loss, dy_loss = self.train_discriminators_on_batch(x, y)
                     # train generators
-                    g_obj, nll_x, nll_y, gx_loss, gy_loss, gx_aux, gy_aux = self.train_generators_on_batch(x, y, lam=utils.var(lam))
+                    g_obj, nll_x, nll_y, gx_loss, gy_loss, gx_aux, gy_aux = self.train_generators_on_batch(x, y, alpha=alpha, lam=utils.var(lam))
                     utils.update_metrics(hist, g_obj=g_obj.numpy(), gx_loss=gx_loss.numpy(), gy_loss=dy_loss.numpy(),
                                          nll_x=nll_x.numpy(), nll_y=nll_y.numpy())
                     prog.update(1)
