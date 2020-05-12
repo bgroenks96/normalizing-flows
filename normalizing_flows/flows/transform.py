@@ -17,7 +17,7 @@ class Transform(tf.Module):
             self.initialize(input_shape)
             
     def __call__(self, z, *args, **kwargs):
-        self.forward(z, *args, **kwargs)
+        return self.forward(z, *args, **kwargs)
     
     def _initialize(self, input_shape):
         """
@@ -60,6 +60,14 @@ class Transform(tf.Module):
         Optional subclass implementation of param_count
         """
         return 0
+    
+    def _create_variables(self, shape: tf.TensorShape, initializer=None, **var_kwargs):
+        """
+        Optional subclass implementation of create_variables
+        """
+        if initializer is None:
+            initializer = lambda shape: tf.random.uniform(shape)
+        return [tf.Variable(initializer((1,self.param_count(shape))), **var_kwargs)]
         
     def forward(self, z, *args, **kwargs):
         """
@@ -83,14 +91,6 @@ class Transform(tf.Module):
         """
         assert not self.requires_init or self.input_shape is not None, 'not initialized'
         return self._regularization_loss()
-
-    def param_count(self, shape: tf.TensorShape):
-        """
-        Number of parameters for this transform, given input shape
-        """
-        assert not self.requires_init or self.input_shape is not None, 'not initialized'
-        count = self._param_count(shape)
-        return count.numpy() if isinstance(count, tf.Tensor) else count
     
     def initialize(self, input_shape: tf.TensorShape):
         """
@@ -104,3 +104,13 @@ class Transform(tf.Module):
         
     def is_initialized(self):
         return self.input_shape is not None
+    
+    def param_count(self, shape: tf.TensorShape):
+        """
+        Number of parameters for this transform, given input shape
+        """
+        count = self._param_count(shape)
+        return count.numpy() if isinstance(count, tf.Tensor) else count
+
+    def create_variables(self, shape: tf.TensorShape, initializer=None, **var_kwargs):
+        return self._create_variables(shape, **var_kwargs)

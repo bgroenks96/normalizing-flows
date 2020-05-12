@@ -1,4 +1,5 @@
 import tensorflow as tf
+import tensorflow_probability as tfp
 from tensorflow.keras.losses import binary_crossentropy
 
 def wasserstein_loss(D, lam=10.):
@@ -51,9 +52,14 @@ def bce_loss(D, from_logits=True):
         loss_fake = binary_crossentropy(target_fake, pred_fake, from_logits=from_logits)
         loss = (loss_real + loss_fake)*0.5
         return tf.math.reduce_mean(loss)
-    def G_loss(x_true, x_pred):
+    @tf.function
+    def G_loss(_, x_pred):
         # Use discriminator loss with labels inverted
-        return D_loss(x_pred, x_true)
+        pred_fake = D(x_pred)
+        target_fake = tf.ones_like(pred_fake)
+        target_fake -= tf.random.normal(tf.shape(target_fake), mean=0.1, stddev=0.02)
+        loss_fake = binary_crossentropy(target_fake, pred_fake, from_logits=from_logits)
+        return tf.math.reduce_mean(loss_fake)
     return D_loss, G_loss
 
 def spatial_mae(scale, c=1.0, stride=1):
@@ -68,3 +74,9 @@ def spatial_mae(scale, c=1.0, stride=1):
         y_avg = tf.nn.conv2d(y_pred, kernel, strides=(stride, stride), padding='SAME')
         return tf.math.reduce_mean(tf.math.abs(y_avg - x_avg))
     return _spatial_mse
+
+def kl_divergence_normal(q, p, mu_q, mu_p, log_var_q, log_var_p, ldj=0.0):
+    logd_q = tf.math.reduce_sum(-0.5*(log_var_q + (q - mu_q)**2 / tf.math.exp(log_var_q)), axis=1)
+    logd_p = tf.math.reduce_sum(-0.5*(log_var_p + (p - mu_p)**2 / tf.math.exp(log_var_p)), axis=1)
+    kld = tf.math.reduce_mean(logd_q - logd_p - ldj)
+    return kld

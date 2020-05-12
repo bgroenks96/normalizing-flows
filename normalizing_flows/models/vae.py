@@ -5,7 +5,7 @@ from tensorflow.keras.layers import Dense, Input, Lambda, Flatten, Reshape, Conv
 from tensorflow.keras.callbacks import LambdaCallback
 from tensorflow.keras.optimizers import Adamax
 from normalizing_flows.flows import Flow
-from normalizing_flows.layers import GatedConv2D, GatedConv2DTranspose, AmortizedFlowLayer
+from normalizing_flows.layers import GatedConv2D, GatedConv2DTranspose, FlowLayer
 
 class GatedConvVAE(tf.Module):
     """
@@ -29,9 +29,10 @@ class GatedConvVAE(tf.Module):
         self.encoder = self._create_encoder(img_wt, img_ht)
         self.decoder, self.flow_layer = self._create_decoder(img_wt, img_ht)
         beta_update = LambdaCallback(on_epoch_begin=lambda i,_: beta_update_fn(i, self.flow_layer.beta))
+        self.callbacks = [beta_update]+callbacks
         decoder_output = self.decoder(self.encoder(self.encoder.inputs))
         self.model = Model(inputs=self.encoder.inputs, outputs=decoder_output[0])
-        self.model.compile(loss=loss, optimizer=Adamax(learning_rate=1.0E-4, clipnorm=1.), callbacks=[beta_update]+callbacks, metrics=metrics)
+        self.model.compile(loss=loss, optimizer=Adamax(learning_rate=1.0E-4, clipnorm=1.), metrics=metrics)
 
     def fit(self, *args, **kwargs):
         """
@@ -109,7 +110,7 @@ class GatedConvVAE(tf.Module):
             params = Input(shape=(self.flow.param_count(z_shape),))
             inputs += [params]
             self.flow.initialize(z_shape)
-        flow_layer = AmortizedFlowLayer(self.flow, min_beta=1.0E-3)
+        flow_layer = FlowLayer(self.flow, min_beta=1.0E-3)
         zs, ldj, kld = flow_layer(inputs)
         z_k = zs[-1]
         s = np.prod(self.encoder_strides)

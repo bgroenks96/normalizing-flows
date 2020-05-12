@@ -1,8 +1,8 @@
 import tensorflow as tf
 import tensorflow.keras.layers as layers
 
-class AmortizedFlowLayer(layers.Layer):
-    def __init__(self, flow, min_beta=0.01, max_beta=1.0):
+class FlowLayer(layers.Layer):
+    def __init__(self, flow=None, min_beta=0.01, max_beta=1.0):
         super().__init__()
         self.flow = flow
         self.min_beta = tf.constant(min_beta)
@@ -40,5 +40,5 @@ class AmortizedFlowLayer(layers.Layer):
         sigma = tf.sqrt(var)
         return mu + sigma*eps
 
-    def set_beta(value):
+    def set_beta(self, value):
         self.beta.assign(tf.maximum(tf.minimum(value, self.max_beta), self.min_beta))

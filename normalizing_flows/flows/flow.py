@@ -92,3 +92,6 @@ class Flow(Transform):
 
     def _param_count(self, shape):
         return tf.math.reduce_sum([t.param_count(shape) for t in self.steps])
+    
+    def _create_variables(self, shape, initializer=None, **kwargs):
+        return sum([t.create_variables(shape, initializer, **kwargs) for t in self.steps],[])

@@ -158,21 +158,3 @@ class FlowLVM(TrackableModule):
             # repeat y_cond n times along batch axis
             y_cond = tf.keras.backend.repeat_elements(y_cond, n, axis=0)
         return self.decode(z, y_cond=y_cond)
-    
-    def optimize_encoding(self, z, lr=1.0E-3, steps=100):
-        z_var = tf.Variable(z, trainable=True)
-        optimizer = tf.keras.optimizers.Adamax(learning_rate=lr)
-        @tf.function
-        def _update():
-            prior_log_probs = tf.math.reduce_sum(self.prior.log_prob(z_var), axis=-1)
-            x, fldj = self.transform.forward(z_var)
-            log_probs = prior_log_probs# - fldj
-            nll = -(log_probs - self.scale_factor*z.shape[-1]) / z.shape[-1]
-            grads = optimizer.get_gradients(nll, z_var)
-            optimizer.apply_gradients(zip(grads, [z_var]))
-            return nll
-        nll_hist = []
-        for i in tqdm(range(steps)):
-            nll = _update()
-            nll_hist.append(nll)
-        return z_var.value(), nll_hist
