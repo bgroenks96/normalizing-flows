@@ -39,6 +39,16 @@ def glow_layer(layer_index,
     return Flow(layer_steps)
 
 class GlowFlow(Transform):
+    """
+    Glow normalizing flow (Kingma et al, 2018).
+    Note that all Glow ops define forward as x -> z (data to encoding)
+    rather than the canonical interpretation of z -> x. Conversely,
+    inverse is defined as z -> x (encoding to data). The implementations
+    provided by this module are written to be consistent with the
+    terminology as defined by the Glow authors. Note that this is inconsistent
+    with the 'flows' module in general, which specifies 'forward' as z -> x
+    and vice versa. This can be corrected easily using the flows.Invert transform.
+    """
     def __init__(self,
                  input_shape=None,
                  num_layers=1,
@@ -51,13 +61,6 @@ class GlowFlow(Transform):
                  *args, **kwargs):
         """
         Creates a new Glow normalizing flow with the given configuration.
-        Note that all Glow ops define forward as x -> z (data to encoding)
-        rather than the canonical interpretation of z -> z'. Conversely,
-        inverse is defined as z -> x (encoding to data). The implementations
-        provided by this module are written to be consistent with the
-        terminology as defined by the Glow authors. Note that this is inconsistent
-        with the 'flows' module in general, which specifies 'forward' as z -> x
-        and vice versa.
 
         input_shape : shape of input; can be provided here or at a later time to 'initialize'
         num_layers  : number of "layers" in the multi-scale Glow architecture

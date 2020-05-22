@@ -1,6 +1,11 @@
 import tensorflow as tf
 
 class TrackableModule(tf.Module):
+    """
+    TrackableModule provides a simple interface for saving and loading model weights
+    via Tensorflow's Checkpoint API.
+    """
+    
     def __init__(self, additional_objects, **kwargs):
         super().__init__(**kwargs)
         self.additional_objects = additional_objects

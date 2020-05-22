@@ -75,7 +75,6 @@ class FlowLVM(TrackableModule):
         log_probs = prior_log_probs + ldj
         nll = -(log_probs - self.scale_factor*num_elements) / num_elements
         return tf.math.reduce_mean(nll), \
-               -tf.math.reduce_mean(prior_log_probs / num_elements), \
                tf.math.reduce_mean(ldj / num_elements), \
                y_loss
         
@@ -91,14 +90,14 @@ class FlowLVM(TrackableModule):
                 and, if clip_grads is True, grad_norm is the global max gradient norm
         """
         assert self.input_shape is not None, 'model not initialized'
-        nll, prior_nll, ldj, y_loss = self.eval_batch(x, **flow_kwargs)
+        nll, ldj, y_loss = self.eval_batch(x, **flow_kwargs)
         reg_loss = self.transform._regularization_loss()
         objective = nll + reg_loss + y_loss
         gradients = tf.gradients(objective, self.trainable_variables)
         if self.clip_grads:
             gradients, grad_norm = tf.clip_by_global_norm(gradients, self.clip_grads)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
-        return objective, nll, prior_nll, ldj
+        return objective, nll, ldj
             
     def train(self, train_data: tf.data.Dataset, steps_per_epoch, num_epochs=1, conditional=False, **flow_kwargs):
         train_data = train_data.take(steps_per_epoch).repeat(num_epochs)
@@ -109,12 +108,12 @@ class FlowLVM(TrackableModule):
                 for batch in train_data.take(steps_per_epoch):
                     if conditional:
                         x, y = batch
-                        loss, nll, prior, ldj  = self.train_batch(x, y_cond=y, init=init, **flow_kwargs)
+                        loss, nll, ldj  = self.train_batch(x, y_cond=y, init=init, **flow_kwargs)
                     else:
                         x = batch
-                        loss, nll, prior, ldj  = self.train_batch(x, init=init, **flow_kwargs)
+                        loss, nll, ldj  = self.train_batch(x, init=init, **flow_kwargs)
                     init=tf.constant(False)
-                    utils.update_metrics(hist, loss=loss.numpy(), nll=nll.numpy(), prior=prior.numpy())
+                    utils.update_metrics(hist, loss=loss.numpy(), nll=nll.numpy())
                     prog.update(1)
                     prog.set_postfix({k: v[0] for k,v in hist.items()})
                     
@@ -125,11 +124,11 @@ class FlowLVM(TrackableModule):
             for batch in validation_data:
                 if conditional:
                     x, y = batch
-                    nll, prior, ldj, y_loss  = self.eval_batch(x, y_cond=y, **flow_kwargs)
+                    nll, ldj, y_loss  = self.eval_batch(x, y_cond=y, **flow_kwargs)
                 else:
                     x = batch
-                    nll, prior, ldj, y_loss  = self.eval_batch(x, **flow_kwargs)
-                utils.update_metrics(hist, nll=nll.numpy(), prior=prior.numpy())
+                    nll, ldj, y_loss  = self.eval_batch(x, **flow_kwargs)
+                utils.update_metrics(hist, nll=nll.numpy())
                 prog.update(1)
                 prog.set_postfix({k: v[0] for k,v in hist.items()})
                 
