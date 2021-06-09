@@ -45,8 +45,7 @@ class Planar(AmortizedTransform):
         z_ = z + tf.multiply(u_hat, self.h(wzb))
         # compute log det jacobian
         dh_dz = tf.multiply(self.dh(wzb), w) # (batch_size, 1, d)
-        r = 1.0 if self.use_residual else 0.0
-        ldj = tf.math.log(tf.math.abs(r + tf.matmul(dh_dz, u_hat)))
+        ldj = tf.math.log(tf.math.abs(1.0 + tf.matmul(dh_dz, u_hat)))
         return tf.squeeze(z_, axis=-1), ldj
 
     def _param_count(self, shape):
