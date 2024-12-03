@@ -4,6 +4,9 @@ Implementations of normalizing flows for variational inference using Python (3.6
 
 ![flows_visualization](imgs/flows_example.png)
 
+> [!NOTE]  
+> This package is not currently maintained. Forks and pull requests are of course still welcome.
+
 ## Installation
 
     pip install git+https://github.com/bgroenks96/normalizing-flows
